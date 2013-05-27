@@ -6,20 +6,27 @@
 #include <errno.h>
 #include <linux/limits.h>
 #include <pwd.h>
+#include <fcntl.h>
 #include <unistd.h>
 #include <sched.h>
+#include <signal.h>
 #include <sys/mount.h>
 #include <sys/resource.h>
 #include <sys/stat.h>
 #include <sys/types.h>
-#include <sys/wait.h>
+#include <sys/epoll.h>
+#include <sys/signalfd.h>
+#include <sys/timerfd.h>
 
 #include <seccomp.h>
+
+static int epoll_fd;
 
 static const char *const username = "rust";
 static const char *const memory_limit = "128M";
 static const char *const root = "sandbox";
 static const char *const hostname = "playpen";
+static const int timeout = 5;
 
 static void write_to(const char *path, const char *string) {
     FILE *fp = fopen(path, "w");
@@ -47,16 +54,85 @@ static void init_cgroup() {
     write_to("/sys/fs/cgroup/devices/playpen/devices.allow", "c 1:9 rw"); // urandom
 }
 
+static void epoll_watch(int fd) {
+    struct epoll_event event = {
+        .data.fd = fd,
+        .events  = EPOLLIN | EPOLLET
+    };
+
+    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, fd, &event) < 0)
+        err(1, "epoll_ctl");
+}
+
+static void copy_pipe_to(int in_fd, int out_fd) {
+    while (true) {
+        ssize_t bytes_s = splice(in_fd, NULL, out_fd, NULL, BUFSIZ, SPLICE_F_MOVE | SPLICE_F_NONBLOCK);
+        if (bytes_s < 0) {
+            if (errno == EAGAIN)
+                break;
+            err(1, "splice");
+        }
+    }
+}
+
 int main(int argc, char **argv) {
     if (argc < 2) {
         errx(1, "need at least one argument");
     }
+
+    epoll_fd = epoll_create1(EPOLL_CLOEXEC);
+    if (epoll_fd < 0) {
+        err(1, "epoll");
+    }
+
+    sigset_t mask;
+    sigemptyset(&mask);
+    sigaddset(&mask, SIGCHLD);
+
+    if (sigprocmask(SIG_BLOCK, &mask, NULL) < 0) {
+        err(1, "sigprocmask");
+    }
+
+    int sig_fd = signalfd(-1, &mask, SFD_CLOEXEC);
+    if (sig_fd < 0) {
+        err(1, "signalfd");
+    }
+
+    epoll_watch(sig_fd);
+
+    int timer_fd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK|TFD_CLOEXEC);
+    if (timer_fd < 0)
+        err(EXIT_FAILURE, "timerfd_create");
+
+    epoll_watch(timer_fd);
+
+    int pipe_out[2];
+    int pipe_err[2];
+    if (pipe(pipe_out) < 0) {
+        err(1, "pipe");
+    }
+
+    if (pipe(pipe_err) < 0) {
+        err(1, "pipe");
+    }
+
+    epoll_watch(pipe_out[0]);
+    epoll_watch(pipe_err[0]);
 
     int pid = syscall(__NR_clone,
                       SIGCHLD|CLONE_NEWIPC|CLONE_NEWNS|CLONE_NEWPID|CLONE_NEWUTS|CLONE_NEWNET,
                       NULL);
 
     if (pid == 0) {
+        close(0);
+        dup2(pipe_out[1], 1);
+        dup2(pipe_err[1], 2);
+
+        close(pipe_out[0]);
+        close(pipe_out[1]);
+        close(pipe_err[0]);
+        close(pipe_err[1]);
+
         init_cgroup();
 
         if (sethostname(hostname, strlen(hostname)) < 0) {
@@ -172,6 +248,7 @@ int main(int argc, char **argv) {
         ALLOW(mprotect);
         ALLOW(mremap);
         ALLOW(munmap);
+        ALLOW(nanosleep);
         ALLOW(open);
         ALLOW(openat);
         ALLOW(pipe);
@@ -205,15 +282,54 @@ int main(int argc, char **argv) {
         err(1, "clone");
     }
 
-    // TODO: timeout
-    int stat;
-    if (waitpid(pid, &stat, 0) != pid) {
-        err(1, "waitpid");
-    }
+    close(pipe_out[1]);
+    close(pipe_err[1]);
 
-    if (WIFEXITED(stat)) {
-        return WEXITSTATUS(stat);
-    } else {
-        raise(WTERMSIG(stat));
+    struct epoll_event events[4];
+    struct itimerspec spec = {
+        .it_value.tv_sec = timeout
+    };
+
+    if (timerfd_settime(timer_fd, 0, &spec, NULL) < 0)
+        err(EXIT_FAILURE, "timerfd_settime");
+
+    while (true) {
+        int i, n = epoll_wait(epoll_fd, events, 4, -1);
+
+        if (n < 0) {
+            if (errno == EINTR)
+                continue;
+            err(1, "epoll_wait");
+        }
+
+        for (i = 0; i < n; ++i) {
+            struct epoll_event *evt = &events[i];
+
+            if (evt->events & EPOLLERR || evt->events & EPOLLHUP) {
+                close(evt->data.fd);
+            } else if (evt->data.fd == timer_fd) {
+                fprintf(stderr, "timeout triggered!\n");
+                return 1;
+            } else if (evt->data.fd == sig_fd) {
+                struct signalfd_siginfo si;
+                ssize_t bytes_r = read(sig_fd, &si, sizeof(si));
+
+                if (bytes_r < 0) {
+                    err(1, "read");
+                } else if (bytes_r != sizeof(si)) {
+                    fprintf(stderr, "read the wrong about of bytes\n");
+                    return 1;
+                } else if (si.ssi_signo != SIGCHLD) {
+                    fprintf(stderr, "got an unexpected signal\n");
+                    return 1;
+                }
+
+                return si.ssi_status;
+            } else if (evt->data.fd == pipe_out[0]) {
+                copy_pipe_to(pipe_out[0], 1);
+            } else if (evt->data.fd == pipe_err[0]) {
+                copy_pipe_to(pipe_err[0], 2);
+            }
+        }
     }
 }
