@@ -19,6 +19,7 @@
 static const char *const username = "rust";
 static const char *const memory_limit = "128M";
 static const char *const root = "sandbox";
+static const char *const hostname = "playpen";
 
 static void write_to(const char *path, const char *string) {
     FILE *fp = fopen(path, "w");
@@ -57,6 +58,10 @@ int main(int argc, char **argv) {
 
     if (pid == 0) {
         init_cgroup();
+
+        if (sethostname(hostname, strlen(hostname)) < 0) {
+            err(1, "sethostname");
+        }
 
         // avoid propagating mounts to the real root
         if (mount(NULL, "/", NULL, MS_SLAVE|MS_REC, NULL) < 0) {
