@@ -30,20 +30,20 @@ static void write_to(const char *path, const char *string) {
 }
 
 static void init_cgroup() {
-    char cgroup_root[PATH_MAX];
-    snprintf(cgroup_root, PATH_MAX, "/sys/fs/cgroup/memory/%s", program_invocation_short_name);
-
-    if (mkdir(cgroup_root, 0755) < 0 && errno != EEXIST) {
-        err(EXIT_FAILURE, "failed to create cgroup subsystem");
+    if (mkdir("/sys/fs/cgroup/memory/playpen", 0755) < 0 && errno != EEXIST) {
+        err(EXIT_FAILURE, "failed to create memory cgroup");
     }
 
-    char path[PATH_MAX];
+    write_to("/sys/fs/cgroup/memory/playpen/tasks", "0");
+    write_to("/sys/fs/cgroup/memory/playpen/memory.limit_in_bytes", memory_limit);
 
-    snprintf(path, PATH_MAX, "%s/tasks", cgroup_root);
-    write_to(path, "0");
+    if (mkdir("/sys/fs/cgroup/devices/playpen", 0755) < 0 && errno != EEXIST) {
+        err(EXIT_FAILURE, "failed to create memory cgroup");
+    }
 
-    snprintf(path, PATH_MAX, "%s/memory.limit_in_bytes", cgroup_root);
-    write_to(path, memory_limit);
+    write_to("/sys/fs/cgroup/devices/playpen/tasks", "0");
+    write_to("/sys/fs/cgroup/devices/playpen/devices.deny", "a");
+    write_to("/sys/fs/cgroup/devices/playpen/devices.allow", "c 1:9 rw"); // urandom
 }
 
 int main(int argc, char **argv) {
