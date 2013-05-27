@@ -16,6 +16,7 @@
 #include <sys/types.h>
 #include <sys/epoll.h>
 #include <sys/signalfd.h>
+#include <sys/timerfd.h>
 
 #include <seccomp.h>
 
@@ -25,6 +26,7 @@ static const char *const username = "rust";
 static const char *const memory_limit = "128M";
 static const char *const root = "sandbox";
 static const char *const hostname = "playpen";
+static const int timeout = 5;
 
 static void write_to(const char *path, const char *string) {
     FILE *fp = fopen(path, "w");
@@ -52,8 +54,7 @@ static void init_cgroup() {
     write_to("/sys/fs/cgroup/devices/playpen/devices.allow", "c 1:9 rw"); // urandom
 }
 
-static void epoll_watch(int fd)
-{
+static void epoll_watch(int fd) {
     struct epoll_event event = {
         .data.fd = fd,
         .events  = EPOLLIN | EPOLLET
@@ -87,6 +88,12 @@ int main(int argc, char **argv) {
     }
 
     epoll_watch(sig_fd);
+
+    int timer_fd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK|TFD_CLOEXEC);
+    if (timer_fd < 0)
+        err(EXIT_FAILURE, "timerfd_create");
+
+    epoll_watch(timer_fd);
 
     int pipe_fd[2];
     if (pipe(pipe_fd) < 0) {
@@ -260,6 +267,12 @@ int main(int argc, char **argv) {
     close(pipe_fd[1]);
 
     struct epoll_event events[4];
+    struct itimerspec spec = {
+        .it_value.tv_sec = timeout
+    };
+
+    if (timerfd_settime(timer_fd, 0, &spec, NULL) < 0)
+        err(EXIT_FAILURE, "timerfd_settime");
 
     while (true) {
         int i, n = epoll_wait(epoll_fd, events, 4, -1);
@@ -275,6 +288,9 @@ int main(int argc, char **argv) {
 
             if (evt->events & EPOLLERR || evt->events & EPOLLHUP) {
                 close(evt->data.fd);
+            } else if (evt->data.fd == timer_fd) {
+                fprintf(stderr, "timeout triggered!\n");
+                return 1;
             } else if (evt->data.fd == sig_fd) {
                 struct signalfd_siginfo si;
                 ssize_t bytes_r = read(sig_fd, &si, sizeof(si));
