@@ -64,6 +64,17 @@ static void epoll_watch(int fd) {
         err(1, "epoll_ctl");
 }
 
+static void copy_pipe_to(int in_fd, int out_fd) {
+    while (true) {
+        ssize_t bytes_s = splice(in_fd, NULL, out_fd, NULL, BUFSIZ, SPLICE_F_MOVE | SPLICE_F_NONBLOCK);
+        if (bytes_s < 0) {
+            if (errno == EAGAIN)
+                break;
+            err(1, "splice");
+        }
+    }
+}
+
 int main(int argc, char **argv) {
     if (argc < 2) {
         errx(1, "need at least one argument");
@@ -95,18 +106,33 @@ int main(int argc, char **argv) {
 
     epoll_watch(timer_fd);
 
-    int pipe_fd[2];
-    if (pipe(pipe_fd) < 0) {
+    int pipe_out[2];
+    int pipe_err[2];
+    if (pipe(pipe_out) < 0) {
         err(1, "pipe");
     }
 
-    epoll_watch(pipe_fd[0]);
+    if (pipe(pipe_err) < 0) {
+        err(1, "pipe");
+    }
+
+    epoll_watch(pipe_out[0]);
+    epoll_watch(pipe_err[0]);
 
     int pid = syscall(__NR_clone,
                       SIGCHLD|CLONE_NEWIPC|CLONE_NEWNS|CLONE_NEWPID|CLONE_NEWUTS|CLONE_NEWNET,
                       NULL);
 
     if (pid == 0) {
+        close(0);
+        dup2(pipe_out[1], 1);
+        dup2(pipe_err[1], 2);
+
+        close(pipe_out[0]);
+        close(pipe_out[1]);
+        close(pipe_err[0]);
+        close(pipe_err[1]);
+
         init_cgroup();
 
         if (sethostname(hostname, strlen(hostname)) < 0) {
@@ -247,14 +273,6 @@ int main(int argc, char **argv) {
 
         check(seccomp_load(ctx));
 
-        close(0);
-        /* close(1); */
-        dup2(pipe_fd[1], 1);
-        close(2);
-
-        close(pipe_fd[0]);
-        close(pipe_fd[1]);
-
         char path[] = "PATH=/usr/local/bin:/usr/bin:/bin";
         char *env[] = {path, NULL};
         if (execve(argv[1], argv + 1, env) < 0) {
@@ -264,7 +282,8 @@ int main(int argc, char **argv) {
         err(1, "clone");
     }
 
-    close(pipe_fd[1]);
+    close(pipe_out[1]);
+    close(pipe_err[1]);
 
     struct epoll_event events[4];
     struct itimerspec spec = {
@@ -306,13 +325,10 @@ int main(int argc, char **argv) {
                 }
 
                 return si.ssi_status;
-            } else if (evt->data.fd == pipe_fd[0]) {
-                ssize_t bytes_s = splice(pipe_fd[0], NULL, 1, NULL, BUFSIZ, SPLICE_F_MOVE | SPLICE_F_NONBLOCK);
-                if (bytes_s < 0) {
-                    if (errno == EAGAIN)
-                        break;
-                    err(1, "splice");
-                }
+            } else if (evt->data.fd == pipe_out[0]) {
+                copy_pipe_to(pipe_out[0], 1);
+            } else if (evt->data.fd == pipe_err[0]) {
+                copy_pipe_to(pipe_err[0], 2);
             }
         }
     }
