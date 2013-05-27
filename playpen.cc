@@ -2,6 +2,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <fstream>
+
 #include <err.h>
 #include <errno.h>
 #include <linux/limits.h>
@@ -75,10 +77,32 @@ static void copy_pipe_to(int in_fd, int out_fd) {
     }
 }
 
+static void kill_group() {
+    bool done = false;
+    do {
+        std::ifstream procs("/sys/fs/cgroup/memory/playpen/cgroup.procs");
+        pid_t pid;
+        done = true;
+        while (procs >> pid) {
+            kill(pid, SIGKILL);
+            done = false;
+        }
+    } while (!done);
+
+    if (rmdir("/sys/fs/cgroup/memory/playpen") < 0) {
+        err(1, "rmdir");
+    }
+    if (rmdir("/sys/fs/cgroup/devices/playpen") < 0) {
+        err(1, "rmdir");
+    }
+}
+
 int main(int argc, char **argv) {
     if (argc < 2) {
         errx(1, "need at least one argument");
     }
+
+    atexit(kill_group);
 
     epoll_fd = epoll_create1(EPOLL_CLOEXEC);
     if (epoll_fd < 0) {
