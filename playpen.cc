@@ -196,6 +196,10 @@ int main(int argc, char **argv) {
 
         check(seccomp_load(ctx));
 
+        close(0);
+        close(1);
+        close(2);
+
         char path[] = "PATH=/usr/local/bin:/usr/bin:/bin";
         char *env[] = {path, NULL};
         if (execve(argv[1], argv + 1, env) < 0) {
