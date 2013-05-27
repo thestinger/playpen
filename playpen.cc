@@ -18,6 +18,8 @@
 
 #include <seccomp.h>
 
+static int epoll_fd;
+
 static const char *const username = "rust";
 static const char *const memory_limit = "128M";
 static const char *const root = "sandbox";
@@ -54,6 +56,11 @@ int main(int argc, char **argv) {
         errx(1, "need at least one argument");
     }
 
+    epoll_fd = epoll_create1(EPOLL_CLOEXEC);
+    if (epoll_fd < 0) {
+        err(1, "epoll");
+    }
+
     sigset_t mask;
     sigemptyset(&mask);
     sigaddset(&mask, SIGCHLD);
@@ -66,6 +73,14 @@ int main(int argc, char **argv) {
     if (sig_fd < 0) {
         err(1, "signalfd");
     }
+
+    struct epoll_event event = {
+        .data.fd = sig_fd,
+        .events  = EPOLLIN | EPOLLET
+    };
+
+    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, sig_fd, &event) < 0)
+        err(1, "epoll_ctl");
 
     int pid = syscall(__NR_clone,
                       SIGCHLD|CLONE_NEWIPC|CLONE_NEWNS|CLONE_NEWPID|CLONE_NEWUTS|CLONE_NEWNET,
@@ -187,6 +202,7 @@ int main(int argc, char **argv) {
         ALLOW(mprotect);
         ALLOW(mremap);
         ALLOW(munmap);
+        ALLOW(nanosleep);
         ALLOW(open);
         ALLOW(openat);
         ALLOW(pipe);
@@ -224,18 +240,39 @@ int main(int argc, char **argv) {
         err(1, "clone");
     }
 
-    struct signalfd_siginfo si;
-    ssize_t bytes_r = read(sig_fd, &si, sizeof(si));
 
-    if (bytes_r < 0) {
-        err(1, "read");
-    } else if (bytes_r != sizeof(si)) {
-        fprintf(stderr, "read the wrong about of bytes\n");
-        return 1;
-    } else if (si.ssi_signo != SIGCHLD) {
-        fprintf(stderr, "got an unexpected signal\n");
-        return 1;
+    struct epoll_event events[4];
+
+    while (true) {
+        int i, n = epoll_wait(epoll_fd, events, 4, -1);
+
+        if (n < 0) {
+            if (errno == EINTR)
+                continue;
+            err(1, "epoll_wait");
+        }
+
+        for (i = 0; i < n; ++i) {
+            struct epoll_event *evt = &events[i];
+
+            if (evt->events & EPOLLERR || evt->events & EPOLLHUP) {
+                close(evt->data.fd);
+            } else if (evt->data.fd == sig_fd) {
+                struct signalfd_siginfo si;
+                ssize_t bytes_r = read(sig_fd, &si, sizeof(si));
+
+                if (bytes_r < 0) {
+                    err(1, "read");
+                } else if (bytes_r != sizeof(si)) {
+                    fprintf(stderr, "read the wrong about of bytes\n");
+                    return 1;
+                } else if (si.ssi_signo != SIGCHLD) {
+                    fprintf(stderr, "got an unexpected signal\n");
+                    return 1;
+                }
+
+                return si.ssi_status;
+            }
+        }
     }
-
-    return si.ssi_status;
 }
