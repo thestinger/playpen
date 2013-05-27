@@ -170,15 +170,6 @@ int main(int argc, char **argv) {
             err(1, "mount");
         }
 
-        if (mount(NULL, "/home/rust", "tmpfs", MS_NOSUID|MS_NODEV, NULL) < 0) {
-            err(1, "mount");
-        }
-
-        // create a new session
-        if (setsid() < 0) {
-            err(1, "setsid");
-        }
-
         struct passwd pw;
         size_t buffer_len = sysconf(_SC_GETPW_R_SIZE_MAX);
         char *buffer = (char *)malloc(buffer_len);
@@ -190,6 +181,17 @@ int main(int argc, char **argv) {
         if (!p_pw) {
             fprintf(stderr, "getpwnam_r failed to find requested entry.\n");
             return 1;
+        }
+
+        if (pw.pw_dir) {
+            if (mount(NULL, pw.pw_dir, "tmpfs", MS_NOSUID|MS_NODEV, NULL) < 0) {
+                err(1, "mount");
+            }
+        }
+
+        // create a new session
+        if (setsid() < 0) {
+            err(1, "setsid");
         }
 
         if (setgid(pw.pw_gid) < 0) {
