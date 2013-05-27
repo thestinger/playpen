@@ -141,17 +141,17 @@ int main(int argc, char **argv) {
 
         // avoid propagating mounts to the real root
         if (mount(NULL, "/", NULL, MS_SLAVE|MS_REC, NULL) < 0) {
-            err(1, "mount");
+            err(1, "mount /");
         }
 
         // turn directory into a bind mount
         if (mount(root, root, "bind", MS_BIND|MS_REC, NULL) < 0) {
-            err(1, "mount");
+            err(1, "bind mount");
         }
 
         // re-mount as read-only
         if (mount(root, root, "bind", MS_BIND|MS_REMOUNT|MS_RDONLY|MS_REC, NULL) < 0) {
-            err(1, "mount");
+            err(1, "remount bind mount");
         }
 
         if (chroot(root) < 0) {
@@ -163,20 +163,11 @@ int main(int argc, char **argv) {
         }
 
         if (mount(NULL, "/proc", "proc", MS_NOSUID|MS_NOEXEC|MS_NODEV, NULL) < 0) {
-            err(1, "mount");
+            err(1, "mount /proc");
         }
 
         if (mount(NULL, "/tmp", "tmpfs", MS_NOSUID|MS_NODEV, NULL) < 0) {
-            err(1, "mount");
-        }
-
-        if (mount(NULL, "/home/rust", "tmpfs", MS_NOSUID|MS_NODEV, NULL) < 0) {
-            err(1, "mount");
-        }
-
-        // create a new session
-        if (setsid() < 0) {
-            err(1, "setsid");
+            err(1, "mount /tmp");
         }
 
         struct passwd pw;
@@ -190,6 +181,17 @@ int main(int argc, char **argv) {
         if (!p_pw) {
             fprintf(stderr, "getpwnam_r failed to find requested entry.\n");
             return 1;
+        }
+
+        if (pw.pw_dir) {
+            if (mount(NULL, pw.pw_dir, "tmpfs", MS_NOSUID|MS_NODEV, NULL) < 0) {
+                err(1, "mount %s", pw.pw_dir);
+            }
+        }
+
+        // create a new session
+        if (setsid() < 0) {
+            err(1, "setsid");
         }
 
         if (setgid(pw.pw_gid) < 0) {
