@@ -6,6 +6,7 @@
 #include <errno.h>
 #include <linux/limits.h>
 #include <pwd.h>
+#include <fcntl.h>
 #include <unistd.h>
 #include <sched.h>
 #include <signal.h>
@@ -51,6 +52,17 @@ static void init_cgroup() {
     write_to("/sys/fs/cgroup/devices/playpen/devices.allow", "c 1:9 rw"); // urandom
 }
 
+static void epoll_watch(int fd)
+{
+    struct epoll_event event = {
+        .data.fd = fd,
+        .events  = EPOLLIN | EPOLLET
+    };
+
+    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, fd, &event) < 0)
+        err(1, "epoll_ctl");
+}
+
 int main(int argc, char **argv) {
     if (argc < 2) {
         errx(1, "need at least one argument");
@@ -74,13 +86,14 @@ int main(int argc, char **argv) {
         err(1, "signalfd");
     }
 
-    struct epoll_event event = {
-        .data.fd = sig_fd,
-        .events  = EPOLLIN | EPOLLET
-    };
+    epoll_watch(sig_fd);
 
-    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, sig_fd, &event) < 0)
-        err(1, "epoll_ctl");
+    int pipe_fd[2];
+    if (pipe(pipe_fd) < 0) {
+        err(1, "pipe");
+    }
+
+    epoll_watch(pipe_fd[0]);
 
     int pid = syscall(__NR_clone,
                       SIGCHLD|CLONE_NEWIPC|CLONE_NEWNS|CLONE_NEWPID|CLONE_NEWUTS|CLONE_NEWNET,
@@ -228,8 +241,12 @@ int main(int argc, char **argv) {
         check(seccomp_load(ctx));
 
         close(0);
-        close(1);
+        /* close(1); */
+        dup2(pipe_fd[1], 1);
         close(2);
+
+        close(pipe_fd[0]);
+        close(pipe_fd[1]);
 
         char path[] = "PATH=/usr/local/bin:/usr/bin:/bin";
         char *env[] = {path, NULL};
@@ -240,6 +257,7 @@ int main(int argc, char **argv) {
         err(1, "clone");
     }
 
+    close(pipe_fd[1]);
 
     struct epoll_event events[4];
 
@@ -272,6 +290,13 @@ int main(int argc, char **argv) {
                 }
 
                 return si.ssi_status;
+            } else if (evt->data.fd == pipe_fd[0]) {
+                ssize_t bytes_s = splice(pipe_fd[0], NULL, 1, NULL, BUFSIZ, SPLICE_F_MOVE | SPLICE_F_NONBLOCK);
+                if (bytes_s < 0) {
+                    if (errno == EAGAIN)
+                        break;
+                    err(1, "splice");
+                }
             }
         }
     }
