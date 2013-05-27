@@ -8,11 +8,13 @@
 #include <pwd.h>
 #include <unistd.h>
 #include <sched.h>
+#include <signal.h>
 #include <sys/mount.h>
 #include <sys/resource.h>
 #include <sys/stat.h>
 #include <sys/types.h>
-#include <sys/wait.h>
+#include <sys/epoll.h>
+#include <sys/signalfd.h>
 
 #include <seccomp.h>
 
@@ -50,6 +52,19 @@ static void init_cgroup() {
 int main(int argc, char **argv) {
     if (argc < 2) {
         errx(1, "need at least one argument");
+    }
+
+    sigset_t mask;
+    sigemptyset(&mask);
+    sigaddset(&mask, SIGCHLD);
+
+    if (sigprocmask(SIG_BLOCK, &mask, NULL) < 0) {
+        err(1, "sigprocmask");
+    }
+
+    int sig_fd = signalfd(-1, &mask, SFD_CLOEXEC);
+    if (sig_fd < 0) {
+        err(1, "signalfd");
     }
 
     int pid = syscall(__NR_clone,
@@ -209,15 +224,18 @@ int main(int argc, char **argv) {
         err(1, "clone");
     }
 
-    // TODO: timeout
-    int stat;
-    if (waitpid(pid, &stat, 0) != pid) {
-        err(1, "waitpid");
+    struct signalfd_siginfo si;
+    ssize_t bytes_r = read(sig_fd, &si, sizeof(si));
+
+    if (bytes_r < 0) {
+        err(1, "read");
+    } else if (bytes_r != sizeof(si)) {
+        fprintf(stderr, "read the wrong about of bytes\n");
+        return 1;
+    } else if (si.ssi_signo != SIGCHLD) {
+        fprintf(stderr, "got an unexpected signal\n");
+        return 1;
     }
 
-    if (WIFEXITED(stat)) {
-        return WEXITSTATUS(stat);
-    } else {
-        raise(WTERMSIG(stat));
-    }
+    return si.ssi_status;
 }
