@@ -48,7 +48,7 @@ static void init_cgroup() {
     write_to("/sys/fs/cgroup/memory/playpen/memory.limit_in_bytes", memory_limit);
 
     if (mkdir("/sys/fs/cgroup/devices/playpen", 0755) < 0 && errno != EEXIST) {
-        err(EXIT_FAILURE, "failed to create memory cgroup");
+        err(EXIT_FAILURE, "failed to create device cgroup");
     }
 
     write_to("/sys/fs/cgroup/devices/playpen/tasks", "0");
@@ -99,7 +99,7 @@ static void kill_group() {
 
 int main(int argc, char **argv) {
     if (argc < 2) {
-        errx(1, "need at least one argument");
+        errx(1, "need at least one argument (program to run in sandbox)");
     }
 
     epoll_fd = epoll_create1(EPOLL_CLOEXEC);
