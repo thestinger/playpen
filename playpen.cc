@@ -68,7 +68,7 @@ static void init_cgroup(pid_t ppid, const char *memory_limit) {
     write_to(path, "a");
 
     snprintf(path, PATH_MAX, "/sys/fs/cgroup/devices/playpen/%jd/devices.allow", (intmax_t)ppid);
-    write_to(path, "c 1:9 rw"); // urandom
+    write_to(path, "c 1:9 r"); // urandom
 }
 
 static void epoll_watch(int fd) {
