@@ -98,7 +98,7 @@ static void kill_group() {
     }
 }
 
-static void __attribute__((__noreturn__)) usage(FILE *out) {
+static void [[noreturn]] usage(FILE *out) {
     fprintf(out, "usage: %s [options] [command ...]\n", program_invocation_short_name);
     fputs("Options:\n"
         " -h, --help                  display this help\n"
