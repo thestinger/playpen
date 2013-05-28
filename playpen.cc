@@ -308,9 +308,6 @@ int main(int argc, char **argv) {
         err(1, "clone");
     }
 
-    close(pipe_out[1]);
-    close(pipe_err[1]);
-
     struct epoll_event events[4];
     struct itimerspec spec = {
         .it_value.tv_sec = timeout
