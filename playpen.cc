@@ -4,6 +4,7 @@
 
 #include <fstream>
 
+#include <getopt.h>
 #include <err.h>
 #include <errno.h>
 #include <linux/limits.h>
@@ -24,10 +25,10 @@
 
 static int epoll_fd;
 
-static const char *const username = "rust";
-static const char *const memory_limit = "128M";
-static const char *const root = "sandbox";
-static const char *const hostname = "playpen";
+static const char *username = "rust";
+static const char *memory_limit = "128M";
+static const char *root = "sandbox";
+static const char *hostname = "playpen";
 static const int timeout = 5;
 
 static void write_to(const char *path, const char *string) {
@@ -97,8 +98,58 @@ static void kill_group() {
     }
 }
 
+static void __attribute__((__noreturn__)) usage(FILE *out) {
+    fprintf(out, "usage: %s [options] [command ...]\n", program_invocation_short_name);
+    fputs("Options:\n"
+        " -h, --help                  display this help\n"
+        " -v, --version               display version\n"
+        " -u, --user=USER             the user to run the program as\n"
+        " -r, --root=ROOT             the root of the container\n"
+        " -n, --hostname=NAME         the hostname to set the container to\n"
+        "     --memory-limit=LIMIT    the memory limit of the container\n", out);
+
+    exit(out == stderr ? EXIT_FAILURE : EXIT_SUCCESS);
+}
+
 int main(int argc, char **argv) {
-    if (argc < 2) {
+    static const struct option opts[] = {
+        { "help",         no_argument,       0, 'h' },
+        { "version",      no_argument,       0, 'v' },
+        { "user",         required_argument, 0, 'u' },
+        { "root",         required_argument, 0, 'r' },
+        { "hostname",     required_argument, 0, 'n' },
+        { "memory-limit", required_argument, 0, 0x100 },
+        { 0, 0, 0, 0 }
+    };
+
+    while (true) {
+        int opt = getopt_long(argc, argv, "hvu:r:n:", opts, NULL);
+        if (opt == -1)
+            break;
+
+        switch (opt) {
+        case 'h':
+            usage(stdout);
+            break;
+        case 'v':
+            printf("%s %s\n", program_invocation_short_name, "devel");
+            return 0;
+        case 'u':
+            username = optarg;
+            break;
+        case 'r':
+            root = optarg;
+            break;
+        case 'n':
+            hostname = optarg;
+            break;
+        default:
+            usage(stderr);
+            break;
+        }
+    }
+
+    if (optind == 0) {
         errx(1, "need at least one argument (program to run in sandbox)");
     }
 
@@ -301,7 +352,7 @@ int main(int argc, char **argv) {
 
         char path[] = "PATH=/usr/local/bin:/usr/bin:/bin";
         char *env[] = {path, NULL};
-        if (execve(argv[1], argv + 1, env) < 0) {
+        if (execve(argv[optind], argv + optind, env) < 0) {
             err(1, "execve");
         }
     } else if (pid < 0) {
