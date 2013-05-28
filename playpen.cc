@@ -29,7 +29,7 @@ static const char *username = "rust";
 static const char *memory_limit = "128M";
 static const char *root = "sandbox";
 static const char *hostname = "playpen";
-static const int timeout = 5;
+static int timeout = 0;
 
 static void write_to(const char *path, const char *string) {
     FILE *fp = fopen(path, "w");
@@ -106,6 +106,7 @@ static void __attribute__((__noreturn__)) usage(FILE *out) {
         " -u, --user=USER             the user to run the program as\n"
         " -r, --root=ROOT             the root of the container\n"
         " -n, --hostname=NAME         the hostname to set the container to\n"
+        " -t, --timeout=NAME          how long the container is allowed to run\n"
         "     --memory-limit=LIMIT    the memory limit of the container\n", out);
 
     exit(out == stderr ? EXIT_FAILURE : EXIT_SUCCESS);
@@ -118,12 +119,13 @@ int main(int argc, char **argv) {
         { "user",         required_argument, 0, 'u' },
         { "root",         required_argument, 0, 'r' },
         { "hostname",     required_argument, 0, 'n' },
+        { "timeout",      required_argument, 0, 't' },
         { "memory-limit", required_argument, 0, 0x100 },
         { 0, 0, 0, 0 }
     };
 
     while (true) {
-        int opt = getopt_long(argc, argv, "hvu:r:n:", opts, NULL);
+        int opt = getopt_long(argc, argv, "hvu:r:n:t:", opts, NULL);
         if (opt == -1)
             break;
 
@@ -142,6 +144,9 @@ int main(int argc, char **argv) {
             break;
         case 'n':
             hostname = optarg;
+            break;
+        case 't':
+            timeout = atoi(optarg);
             break;
         default:
             usage(stderr);
@@ -173,11 +178,14 @@ int main(int argc, char **argv) {
 
     epoll_watch(sig_fd);
 
-    int timer_fd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK|TFD_CLOEXEC);
-    if (timer_fd < 0)
-        err(EXIT_FAILURE, "timerfd_create");
+    int timer_fd = -1;
+    if (timeout) {
+        timer_fd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK|TFD_CLOEXEC);
+        if (timer_fd < 0)
+            err(EXIT_FAILURE, "timerfd_create");
 
-    epoll_watch(timer_fd);
+        epoll_watch(timer_fd);
+    }
 
     int pipe_out[2];
     int pipe_err[2];
@@ -359,13 +367,16 @@ int main(int argc, char **argv) {
         err(1, "clone");
     }
 
-    struct epoll_event events[4];
-    struct itimerspec spec = {
-        .it_value.tv_sec = timeout
-    };
+    if (timeout) {
+        struct itimerspec spec = {
+            .it_value.tv_sec = timeout
+        };
 
-    if (timerfd_settime(timer_fd, 0, &spec, NULL) < 0)
-        err(EXIT_FAILURE, "timerfd_settime");
+        if (timerfd_settime(timer_fd, 0, &spec, NULL) < 0)
+            err(EXIT_FAILURE, "timerfd_settime");
+    }
+
+    struct epoll_event events[4];
 
     while (true) {
         int i, n = epoll_wait(epoll_fd, events, 4, -1);
