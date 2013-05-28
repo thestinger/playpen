@@ -89,10 +89,10 @@ static void kill_group() {
         }
     } while (!done);
 
-    if (rmdir("/sys/fs/cgroup/memory/playpen") < 0) {
+    if (rmdir("/sys/fs/cgroup/memory/playpen") < 0 && errno != ENOENT) {
         err(1, "rmdir");
     }
-    if (rmdir("/sys/fs/cgroup/devices/playpen") < 0) {
+    if (rmdir("/sys/fs/cgroup/devices/playpen") < 0 && errno != ENOENT) {
         err(1, "rmdir");
     }
 }
@@ -101,8 +101,6 @@ int main(int argc, char **argv) {
     if (argc < 2) {
         errx(1, "need at least one argument");
     }
-
-    atexit(kill_group);
 
     epoll_fd = epoll_create1(EPOLL_CLOEXEC);
     if (epoll_fd < 0) {
@@ -142,6 +140,8 @@ int main(int argc, char **argv) {
 
     epoll_watch(pipe_out[0]);
     epoll_watch(pipe_err[0]);
+
+    atexit(kill_group);
 
     int pid = syscall(__NR_clone,
                       SIGCHLD|CLONE_NEWIPC|CLONE_NEWNS|CLONE_NEWPID|CLONE_NEWUTS|CLONE_NEWNET,
