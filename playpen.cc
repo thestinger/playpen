@@ -25,12 +25,6 @@
 
 static int epoll_fd;
 
-static const char *username = "rust";
-static const char *memory_limit = "128M";
-static const char *root = "sandbox";
-static const char *hostname = "playpen";
-static int timeout = 0;
-
 static void write_to(const char *path, const char *string) {
     FILE *fp = fopen(path, "w");
     if (!fp) {
@@ -40,7 +34,7 @@ static void write_to(const char *path, const char *string) {
     fclose(fp);
 }
 
-static void init_cgroup() {
+static void init_cgroup(const char *memory_limit) {
     if (mkdir("/sys/fs/cgroup/memory/playpen", 0755) < 0 && errno != EEXIST) {
         err(EXIT_FAILURE, "failed to create memory cgroup");
     }
@@ -113,6 +107,12 @@ static void [[noreturn]] usage(FILE *out) {
 }
 
 int main(int argc, char **argv) {
+    const char *memory_limit = "128M";
+    const char *username = "rust";
+    const char *root = "sandbox";
+    const char *hostname = "playpen";
+    int timeout = 0;
+
     static const struct option opts[] = {
         { "help",         no_argument,       0, 'h' },
         { "version",      no_argument,       0, 'v' },
@@ -216,7 +216,7 @@ int main(int argc, char **argv) {
         close(pipe_err[0]);
         close(pipe_err[1]);
 
-        init_cgroup();
+        init_cgroup(memory_limit);
 
         if (sethostname(hostname, strlen(hostname)) < 0) {
             err(1, "sethostname");
