@@ -34,21 +34,41 @@ static void write_to(const char *path, const char *string) {
     fclose(fp);
 }
 
-static void init_cgroup(const char *memory_limit) {
+static void init_cgroup(pid_t ppid, const char *memory_limit) {
+    char path[PATH_MAX];
+
     if (mkdir("/sys/fs/cgroup/memory/playpen", 0755) < 0 && errno != EEXIST) {
         err(EXIT_FAILURE, "failed to create memory cgroup");
     }
 
-    write_to("/sys/fs/cgroup/memory/playpen/tasks", "0");
-    write_to("/sys/fs/cgroup/memory/playpen/memory.limit_in_bytes", memory_limit);
+    snprintf(path, PATH_MAX, "/sys/fs/cgroup/memory/playpen/%jd", (intmax_t)ppid);
+    if (mkdir(path, 0755) < 0 && errno != EEXIST) {
+        err(EXIT_FAILURE, "failed to create memory cgroup");
+    }
+
+    snprintf(path, PATH_MAX, "/sys/fs/cgroup/memory/playpen/%jd/tasks", (intmax_t)ppid);
+    write_to(path, "0");
+
+    snprintf(path, PATH_MAX, "/sys/fs/cgroup/memory/playpen/%jd/memory.limit_in_bytes", (intmax_t)ppid);
+    write_to(path, memory_limit);
 
     if (mkdir("/sys/fs/cgroup/devices/playpen", 0755) < 0 && errno != EEXIST) {
         err(EXIT_FAILURE, "failed to create device cgroup");
     }
 
-    write_to("/sys/fs/cgroup/devices/playpen/tasks", "0");
-    write_to("/sys/fs/cgroup/devices/playpen/devices.deny", "a");
-    write_to("/sys/fs/cgroup/devices/playpen/devices.allow", "c 1:9 rw"); // urandom
+    snprintf(path, PATH_MAX, "/sys/fs/cgroup/devices/playpen/%jd", (intmax_t)ppid);
+    if (mkdir(path, 0755) < 0 && errno != EEXIST) {
+        err(EXIT_FAILURE, "failed to create device cgroup");
+    }
+
+    snprintf(path, PATH_MAX, "/sys/fs/cgroup/devices/playpen/%jd/tasks", (intmax_t)ppid);
+    write_to(path, "0");
+
+    snprintf(path, PATH_MAX, "/sys/fs/cgroup/devices/playpen/%jd/devices.deny", (intmax_t)ppid);
+    write_to(path, "a");
+
+    snprintf(path, PATH_MAX, "/sys/fs/cgroup/devices/playpen/%jd/devices.allow", (intmax_t)ppid);
+    write_to(path, "c 1:9 rw"); // urandom
 }
 
 static void epoll_watch(int fd) {
@@ -73,9 +93,13 @@ static void copy_pipe_to(int in_fd, int out_fd) {
 }
 
 static void kill_group() {
+    pid_t pid = getpid();
+    char path[PATH_MAX];
+    snprintf(path, PATH_MAX, "/sys/fs/cgroup/memory/playpen/%jd/cgroup.procs", (intmax_t)pid);
+
     bool done = false;
     do {
-        std::ifstream procs("/sys/fs/cgroup/memory/playpen/cgroup.procs");
+        std::ifstream procs(path);
         pid_t pid;
         done = true;
         while (procs >> pid) {
@@ -84,10 +108,13 @@ static void kill_group() {
         }
     } while (!done);
 
-    if (rmdir("/sys/fs/cgroup/memory/playpen") < 0 && errno != ENOENT) {
+    snprintf(path, PATH_MAX, "/sys/fs/cgroup/memory/playpen/%jd", (intmax_t)pid);
+    if (rmdir(path) < 0 && errno != ENOENT) {
         err(1, "rmdir");
     }
-    if (rmdir("/sys/fs/cgroup/devices/playpen") < 0 && errno != ENOENT) {
+
+    snprintf(path, PATH_MAX, "/sys/fs/cgroup/devices/playpen/%jd", (intmax_t)pid);
+    if (rmdir(path) < 0 && errno != ENOENT) {
         err(1, "rmdir");
     }
 }
@@ -202,9 +229,10 @@ int main(int argc, char **argv) {
 
     atexit(kill_group);
 
-    int pid = syscall(__NR_clone,
-                      SIGCHLD|CLONE_NEWIPC|CLONE_NEWNS|CLONE_NEWPID|CLONE_NEWUTS|CLONE_NEWNET,
-                      NULL);
+    pid_t ppid = getpid(); // getppid() in the child won't work
+    pid_t pid = syscall(__NR_clone,
+                        SIGCHLD|CLONE_NEWIPC|CLONE_NEWNS|CLONE_NEWPID|CLONE_NEWUTS|CLONE_NEWNET,
+                        NULL);
 
     if (pid == 0) {
         close(0);
@@ -216,7 +244,7 @@ int main(int argc, char **argv) {
         close(pipe_err[0]);
         close(pipe_err[1]);
 
-        init_cgroup(memory_limit);
+        init_cgroup(ppid, memory_limit);
 
         if (sethostname(hostname, strlen(hostname)) < 0) {
             err(1, "sethostname");
