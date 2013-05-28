@@ -25,7 +25,10 @@
 
 static int epoll_fd;
 
-static void write_to(const char *path, const char *string) {
+static void write_to(const char *controller, const char *device, const char *string) {
+    char path[PATH_MAX];
+
+    snprintf(path, PATH_MAX, "%s/%s", controller, device);
     FILE *fp = fopen(path, "w");
     if (!fp) {
         err(EXIT_FAILURE, "failed to open %s", path);
@@ -34,41 +37,30 @@ static void write_to(const char *path, const char *string) {
     fclose(fp);
 }
 
-static void init_cgroup(pid_t ppid, const char *memory_limit) {
-    char path[PATH_MAX];
-
-    if (mkdir("/sys/fs/cgroup/memory/playpen", 0755) < 0 && errno != EEXIST) {
-        err(EXIT_FAILURE, "failed to create memory cgroup");
-    }
-
-    snprintf(path, PATH_MAX, "/sys/fs/cgroup/memory/playpen/%jd", (intmax_t)ppid);
+static void init_cgroup(pid_t ppid, const char *device, char *path) {
+    snprintf(path, PATH_MAX, "/sys/fs/cgroup/%s/playpen", device);
     if (mkdir(path, 0755) < 0 && errno != EEXIST) {
-        err(EXIT_FAILURE, "failed to create memory cgroup");
+        err(EXIT_FAILURE, "failed to create %s cgroup", device);
     }
 
-    snprintf(path, PATH_MAX, "/sys/fs/cgroup/memory/playpen/%jd/tasks", (intmax_t)ppid);
-    write_to(path, "0");
-
-    snprintf(path, PATH_MAX, "/sys/fs/cgroup/memory/playpen/%jd/memory.limit_in_bytes", (intmax_t)ppid);
-    write_to(path, memory_limit);
-
-    if (mkdir("/sys/fs/cgroup/devices/playpen", 0755) < 0 && errno != EEXIST) {
-        err(EXIT_FAILURE, "failed to create device cgroup");
-    }
-
-    snprintf(path, PATH_MAX, "/sys/fs/cgroup/devices/playpen/%jd", (intmax_t)ppid);
+    snprintf(path, PATH_MAX, "/sys/fs/cgroup/%s/playpen/%jd", device, (intmax_t)ppid);
     if (mkdir(path, 0755) < 0 && errno != EEXIST) {
-        err(EXIT_FAILURE, "failed to create device cgroup");
+        err(EXIT_FAILURE, "failed to create %s sub cgroup", device);
     }
+}
 
-    snprintf(path, PATH_MAX, "/sys/fs/cgroup/devices/playpen/%jd/tasks", (intmax_t)ppid);
-    write_to(path, "0");
+static void init_cgroups(pid_t ppid, const char *memory_limit) {
+    char memory_cgroup[PATH_MAX];
+    char devices_cgroup[PATH_MAX];
 
-    snprintf(path, PATH_MAX, "/sys/fs/cgroup/devices/playpen/%jd/devices.deny", (intmax_t)ppid);
-    write_to(path, "a");
+    init_cgroup(ppid, "memory", memory_cgroup);
+    write_to(memory_cgroup, "tasks", "0");
+    write_to(memory_cgroup, "memory.limit_in_bytes", memory_limit);
 
-    snprintf(path, PATH_MAX, "/sys/fs/cgroup/devices/playpen/%jd/devices.allow", (intmax_t)ppid);
-    write_to(path, "c 1:9 rw"); // urandom
+    init_cgroup(ppid, "devices", devices_cgroup);
+    write_to(devices_cgroup, "tasks", "0");
+    write_to(devices_cgroup, "devices.deny", "a");
+    write_to(devices_cgroup, "devices.allow", "c 1:9 rw"); // urandom
 }
 
 static void epoll_watch(int fd) {
@@ -244,7 +236,7 @@ int main(int argc, char **argv) {
         close(pipe_err[0]);
         close(pipe_err[1]);
 
-        init_cgroup(ppid, memory_limit);
+        init_cgroups(ppid, memory_limit);
 
         if (sethostname(hostname, strlen(hostname)) < 0) {
             err(1, "sethostname");
