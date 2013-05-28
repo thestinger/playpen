@@ -296,6 +296,7 @@ int main(int argc, char **argv) {
         ALLOW(chmod);
         ALLOW(clone);
         ALLOW(close);
+        ALLOW(connect);
         ALLOW(dup);
         ALLOW(dup2);
         ALLOW(execve);
@@ -311,6 +312,7 @@ int main(int argc, char **argv) {
         ALLOW(getegid);
         ALLOW(geteuid);
         ALLOW(getgid);
+        ALLOW(getpeername);
         ALLOW(getpgrp);
         ALLOW(getpid);
         ALLOW(getppid);
@@ -337,6 +339,7 @@ int main(int argc, char **argv) {
         ALLOW(setrlimit);
         ALLOW(set_robust_list);
         ALLOW(set_tid_address);
+        ALLOW(socket);
         ALLOW(stat);
         ALLOW(statfs);
         ALLOW(umask);
