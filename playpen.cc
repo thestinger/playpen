@@ -26,10 +26,7 @@
 
 #include <seccomp.h>
 
-struct syscall_pair {
-    const char *key;
-    const unsigned int val;
-};
+using syscall_pair = std::pair<const char *const, const unsigned>;
 
 #include "syscalls.inc"
 
@@ -130,13 +127,13 @@ static void kill_group() {
 }
 
 static int cmp(const void *key, const void *p) {
-    return strcmp((const char *)key, ((syscall_pair *)p)->key);
+    return strcmp((const char *)key, ((syscall_pair *)p)->first);
 }
 
 static unsigned int get_syscall_nr(const char *key) {
     auto result = (syscall_pair *)bsearch(key, nrs.data(), nrs.size(), sizeof nrs[0], cmp);
     if (result) {
-        return result->val;
+        return result->second;
     }
 
     fprintf(stderr, "Error: non-existent syscall %s\n", key);
