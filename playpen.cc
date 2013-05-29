@@ -2,7 +2,9 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <iostream>
 #include <fstream>
+#include <vector>
 
 #include <getopt.h>
 #include <err.h>
@@ -22,6 +24,8 @@
 #include <sys/timerfd.h>
 
 #include <seccomp.h>
+
+#include "syscalls.h"
 
 static int epoll_fd;
 
@@ -119,6 +123,19 @@ static void kill_group() {
     }
 }
 
+static unsigned int find_val_in_kvs(const char *key, ssize_t length) {
+    // TODO: binary search, rather than linear. array is already sorted.
+    for (int i = 0; i < num_syscalls; i++) {
+        struct syscall_pair sp = kvs[i];
+        if (strncmp(sp.key, key, length) == 0) {
+            return sp.val;
+        }
+    }
+
+    fprintf(stderr, "Error: non-existent syscall %s\n", key);
+    exit(EXIT_FAILURE);
+}
+
 static void [[noreturn]] usage(FILE *out) {
     fprintf(out, "usage: %s [options] [command ...]\n", program_invocation_short_name);
     fputs("Options:\n"
@@ -128,6 +145,8 @@ static void [[noreturn]] usage(FILE *out) {
         " -r, --root=ROOT             the root of the container\n"
         " -n, --hostname=NAME         the hostname to set the container to\n"
         " -t, --timeout=NAME          how long the container is allowed to run\n"
+        " -s, --syscalls=LIST         comma separated whitelist of syscalls\n"
+        "     --syscalls-file=PATH    whitelist file containing one syscall name per line (overrides -s)\n"
         "     --memory-limit=LIMIT    the memory limit of the container\n", out);
 
     exit(out == stderr ? EXIT_FAILURE : EXIT_SUCCESS);
@@ -138,6 +157,9 @@ int main(int argc, char **argv) {
     const char *username = "rust";
     const char *root = "sandbox";
     const char *hostname = "playpen";
+    const char *syscalls = NULL;
+    const char *syscalls_file = NULL;
+    std::vector<unsigned int> syscalls_from_file;
     int timeout = 0;
 
     static const struct option opts[] = {
@@ -147,12 +169,14 @@ int main(int argc, char **argv) {
         { "root",         required_argument, 0, 'r' },
         { "hostname",     required_argument, 0, 'n' },
         { "timeout",      required_argument, 0, 't' },
-        { "memory-limit", required_argument, 0, 0x100 },
+        { "syscalls",     required_argument, 0, 's' },
+        { "syscalls-file",required_argument, 0, 0x100 },
+        { "memory-limit", required_argument, 0, 0x101 },
         { 0, 0, 0, 0 }
     };
 
     while (true) {
-        int opt = getopt_long(argc, argv, "hvu:r:n:t:", opts, NULL);
+        int opt = getopt_long(argc, argv, "hvu:r:n:t:s:", opts, NULL);
         if (opt == -1)
             break;
 
@@ -175,14 +199,35 @@ int main(int argc, char **argv) {
         case 't':
             timeout = atoi(optarg);
             break;
+        case 's':
+            syscalls = optarg;
+            break;
+        case 0x100:
+            syscalls_file = optarg;
+            break;
+        case 0x101:
+            memory_limit = optarg;
+            break;
         default:
             usage(stderr);
             break;
         }
     }
 
-    if (optind == 0) {
-        errx(1, "need at least one argument (program to run in sandbox)");
+    if (optind == 1) {
+        usage(stderr);
+    }
+
+    if (syscalls_file != NULL) {
+        std::string name;
+        std::ifstream file(syscalls_file);
+
+        while (file.good()) {
+            std::getline(file, name);
+
+            syscalls_from_file.push_back(find_val_in_kvs(name.c_str(), name.length()));
+        }
+        file.close();
     }
 
     epoll_fd = epoll_create1(EPOLL_CLOEXEC);
@@ -323,64 +368,31 @@ int main(int argc, char **argv) {
             }
         };
 
-#define ALLOW(x) do { check(seccomp_rule_add(ctx, SCMP_ACT_ALLOW, SCMP_SYS(x), 0)); } while (0)
+#define ALLOW(x) do { check(seccomp_rule_add(ctx, SCMP_ACT_ALLOW, x, 0)); } while (0)
 
-        ALLOW(access);
-        ALLOW(arch_prctl);
-        ALLOW(brk);
-        ALLOW(chdir);
-        ALLOW(chmod);
-        ALLOW(clone);
-        ALLOW(close);
-        ALLOW(dup);
-        ALLOW(dup2);
-        ALLOW(execve);
-        ALLOW(exit);
-        ALLOW(exit_group);
-        ALLOW(faccessat);
-        ALLOW(fadvise64);
-        ALLOW(fcntl);
-        ALLOW(fstat);
-        ALLOW(futex);
-        ALLOW(getcwd);
-        ALLOW(getdents);
-        ALLOW(getegid);
-        ALLOW(geteuid);
-        ALLOW(getgid);
-        ALLOW(getpgrp);
-        ALLOW(getpid);
-        ALLOW(getppid);
-        ALLOW(getrlimit);
-        ALLOW(getrusage);
-        ALLOW(getuid);
-        ALLOW(ioctl);
-        ALLOW(lseek);
-        ALLOW(lstat);
-        ALLOW(madvise);
-        ALLOW(mmap);
-        ALLOW(mprotect);
-        ALLOW(mremap);
-        ALLOW(munmap);
-        ALLOW(nanosleep);
-        ALLOW(open);
-        ALLOW(openat);
-        ALLOW(pipe);
-        ALLOW(read);
-        ALLOW(readlink);
-        ALLOW(rt_sigaction);
-        ALLOW(rt_sigprocmask);
-        ALLOW(rt_sigreturn);
-        ALLOW(setrlimit);
-        ALLOW(set_robust_list);
-        ALLOW(set_tid_address);
-        ALLOW(stat);
-        ALLOW(statfs);
-        ALLOW(umask);
-        ALLOW(uname);
-        ALLOW(unlink);
-        ALLOW(vfork);
-        ALLOW(wait4);
-        ALLOW(write);
+        if (syscalls != NULL) {
+            int i = 0;
+            do {
+                int len = 0;
+                for (int j = i; j < strlen(syscalls); j++) {
+                    if (syscalls[j] != ',') {
+                        len++;
+                    } else {
+                        break;
+                    }
+                }
+                auto syscall_nr = find_val_in_kvs(syscalls + i, len);
+
+                ALLOW(syscall_nr);
+
+                i += len + 1;
+            } while (i <= strlen(syscalls));
+        }
+
+        for (std::vector<unsigned int>::iterator it = syscalls_from_file.begin();
+             it != syscalls_from_file.end(); ++it) {
+            ALLOW(*it);
+        }
 
 #undef ALLOW
 
