@@ -372,6 +372,8 @@ int main(int argc, char **argv) {
             check(seccomp_rule_add(ctx, SCMP_ACT_ALLOW, syscall, 0));
         };
 
+        allow(__NR_execve);
+
         if (syscalls != NULL) {
             for (char *s_ptr = syscalls, *saveptr; ; s_ptr = nullptr) {
                 const char *syscall = strtok_r(s_ptr, ",", &saveptr);
