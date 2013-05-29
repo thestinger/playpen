@@ -13,15 +13,7 @@ with open(sys.argv[1]) as f:
         if line.startswith("#define __NR_"):
             syscalls.append(line.strip().replace("#define __NR_", "").split(" "))
 
-print("""\
-#include <array>
-
-struct syscall_pair {
-    const char *key;
-    const unsigned int val;
-};
-
-const std::array<syscall_pair, %d> nrs = {{""" % (len(syscalls)))
+print("""const std::array<syscall_pair, %d> nrs = {{""" % (len(syscalls)))
 
 for syscall in sorted(syscalls, key=lambda v: v[0]):
     print("{\"%s\", %s}," % (syscall[0], syscall[1]))

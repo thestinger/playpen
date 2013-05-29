@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <array>
 #include <iostream>
 #include <fstream>
 #include <vector>
@@ -25,7 +26,12 @@
 
 #include <seccomp.h>
 
-#include "syscalls.h"
+struct syscall_pair {
+    const char *key;
+    const unsigned int val;
+};
+
+#include "syscalls.inc"
 
 static int epoll_fd;
 
