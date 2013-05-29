@@ -123,13 +123,14 @@ static void kill_group() {
     }
 }
 
-static unsigned int find_val_in_kvs(const char *key, ssize_t length) {
-    // TODO: binary search, rather than linear. array is already sorted.
-    for (int i = 0; i < num_syscalls; i++) {
-        struct syscall_pair sp = kvs[i];
-        if (strncmp(sp.key, key, length) == 0) {
-            return sp.val;
-        }
+static int cmp(const void *key, const void *p) {
+    return strcmp((const char *)key, ((syscall_pair *)p)->key);
+}
+
+static unsigned int get_syscall_nr(const char *key) {
+    auto result = (syscall_pair *)bsearch(key, nrs.data(), nrs.size(), sizeof nrs[0], cmp);
+    if (result) {
+        return result->val;
     }
 
     fprintf(stderr, "Error: non-existent syscall %s\n", key);
@@ -157,7 +158,7 @@ int main(int argc, char **argv) {
     const char *username = "rust";
     const char *root = "sandbox";
     const char *hostname = "playpen";
-    const char *syscalls = NULL;
+    char *syscalls = NULL;
     const char *syscalls_file = NULL;
     std::vector<unsigned int> syscalls_from_file;
     int timeout = 0;
@@ -222,12 +223,9 @@ int main(int argc, char **argv) {
         std::string name;
         std::ifstream file(syscalls_file);
 
-        while (file.good()) {
-            std::getline(file, name);
-
-            syscalls_from_file.push_back(find_val_in_kvs(name.c_str(), name.length()));
+        while (std::getline(file, name)) {
+            syscalls_from_file.push_back(get_syscall_nr(name.c_str()));
         }
-        file.close();
     }
 
     epoll_fd = epoll_create1(EPOLL_CLOEXEC);
@@ -368,33 +366,22 @@ int main(int argc, char **argv) {
             }
         };
 
-#define ALLOW(x) do { check(seccomp_rule_add(ctx, SCMP_ACT_ALLOW, x, 0)); } while (0)
+        auto allow = [ctx, check](int syscall) {
+            check(seccomp_rule_add(ctx, SCMP_ACT_ALLOW, syscall, 0));
+        };
 
         if (syscalls != NULL) {
-            int i = 0;
-            do {
-                int len = 0;
-                for (int j = i; j < strlen(syscalls); j++) {
-                    if (syscalls[j] != ',') {
-                        len++;
-                    } else {
-                        break;
-                    }
-                }
-                auto syscall_nr = find_val_in_kvs(syscalls + i, len);
-
-                ALLOW(syscall_nr);
-
-                i += len + 1;
-            } while (i <= strlen(syscalls));
+            for (char *s_ptr = syscalls, *saveptr; ; s_ptr = nullptr) {
+                const char *syscall = strtok_r(s_ptr, ",", &saveptr);
+                if (!syscall) break;
+                auto syscall_nr = get_syscall_nr(syscall);
+                allow(syscall_nr);
+            }
         }
 
-        for (std::vector<unsigned int>::iterator it = syscalls_from_file.begin();
-             it != syscalls_from_file.end(); ++it) {
-            ALLOW(*it);
+        for (unsigned int syscall: syscalls_from_file) {
+            allow(syscall);
         }
-
-#undef ALLOW
 
         check(seccomp_load(ctx));
 
