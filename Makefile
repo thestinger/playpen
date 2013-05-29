@@ -4,9 +4,8 @@ LDLIBS = -lseccomp
 LDFLAGS = -Wl,--as-needed
 SYSCALLS_HEADER ?= /usr/include/asm/unistd_64.h
 
-all: playpen syscalls.h
+playpen: playpen.cc syscalls.h
+	$(CXX) $(CXXFLAGS) $(LDFLAGS) $< $(LDLIBS) -o $@
 
-playpen: playpen.cc
-
-syscalls.h:
+syscalls.h: gentab.py
 	python gentab.py $(SYSCALLS_HEADER) > syscalls.h
