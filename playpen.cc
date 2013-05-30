@@ -439,7 +439,16 @@ int main(int argc, char **argv) {
                     return 1;
                 }
 
-                return si.ssi_status;
+                if (si.ssi_code == CLD_EXITED) {
+                    if (si.ssi_status) {
+                        fprintf(stderr, "application terminated with error code %d\n", si.ssi_status);
+                    }
+                    return si.ssi_status;
+                } else {
+                    fprintf(stderr, "application terminated with signal %d (%s)\n",
+                            si.ssi_status, strsignal(si.ssi_status));
+                    return 1;
+                }
             } else if (evt->data.fd == pipe_out[0]) {
                 copy_pipe_to(pipe_out[0], 1);
             } else if (evt->data.fd == pipe_err[0]) {
