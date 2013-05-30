@@ -157,7 +157,7 @@ static void [[noreturn]] usage(FILE *out) {
 
 int main(int argc, char **argv) {
     const char *memory_limit = "128M";
-    const char *username = "rust";
+    const char *username = "nobody";
     const char *root = "sandbox";
     const char *hostname = "playpen";
     char *syscalls = NULL;
