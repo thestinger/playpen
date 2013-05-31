@@ -148,7 +148,7 @@ static void [[noreturn]] usage(FILE *out) {
         " -u, --user=USER             the user to run the program as\n"
         " -r, --root=ROOT             the root of the container\n"
         " -n, --hostname=NAME         the hostname to set the container to\n"
-        " -t, --timeout=NAME          how long the container is allowed to run\n"
+        " -t, --timeout=INTEGER       how long the container is allowed to run\n"
         " -s, --syscalls=LIST         comma separated whitelist of syscalls\n"
         "     --syscalls-file=PATH    whitelist file containing one syscall name per line (overrides -s)\n"
         "     --memory-limit=LIMIT    the memory limit of the container\n", out);
