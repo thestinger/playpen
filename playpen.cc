@@ -30,8 +30,6 @@ using syscall_pair = std::pair<const char *const, const unsigned>;
 
 #include "syscalls.inc"
 
-static int epoll_fd;
-
 static void write_to(const char *path, const char *string) {
     FILE *fp = fopen(path, "w");
     if (!fp) {
@@ -78,7 +76,7 @@ static void init_cgroup(pid_t ppid, const char *memory_limit) {
     write_to(path, "c 1:9 r"); // urandom
 }
 
-static void epoll_watch(int fd) {
+static void epoll_watch(int epoll_fd, int fd) {
     struct epoll_event event = {};
     event.data.fd = fd;
     event.events = EPOLLIN | EPOLLET;
@@ -157,6 +155,7 @@ static void [[noreturn]] usage(FILE *out) {
 }
 
 int main(int argc, char **argv) {
+    int epoll_fd;
     const char *memory_limit = "128M";
     const char *username = "nobody";
     const char *root = "sandbox";
@@ -249,7 +248,7 @@ int main(int argc, char **argv) {
         err(1, "signalfd");
     }
 
-    epoll_watch(sig_fd);
+    epoll_watch(epoll_fd, sig_fd);
 
     int timer_fd = -1;
     if (timeout) {
@@ -257,7 +256,7 @@ int main(int argc, char **argv) {
         if (timer_fd < 0)
             err(EXIT_FAILURE, "timerfd_create");
 
-        epoll_watch(timer_fd);
+        epoll_watch(epoll_fd, timer_fd);
     }
 
     int pipe_out[2];
@@ -270,8 +269,8 @@ int main(int argc, char **argv) {
         err(1, "pipe");
     }
 
-    epoll_watch(pipe_out[0]);
-    epoll_watch(pipe_err[0]);
+    epoll_watch(epoll_fd, pipe_out[0]);
+    epoll_watch(epoll_fd, pipe_err[0]);
 
     atexit(kill_group);
 
