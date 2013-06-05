@@ -296,8 +296,8 @@ int main(int argc, char **argv) {
             err(1, "sethostname");
         }
 
-        // avoid propagating mounts to the real root
-        if (mount(nullptr, "/", nullptr, MS_SLAVE|MS_REC, nullptr) < 0) {
+        // avoid propagating mounts to or from the real root
+        if (mount(nullptr, "/", nullptr, MS_PRIVATE|MS_REC, nullptr) < 0) {
             err(1, "mount /");
         }
 
