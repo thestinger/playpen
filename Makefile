@@ -1,3 +1,5 @@
+PREFIX = /usr/local
+
 CXX = clang++
 CXXFLAGS = -std=c++11 -O2 -Wmost
 LDLIBS = -lseccomp
@@ -9,3 +11,6 @@ playpen: playpen.cc syscalls.inc
 
 syscalls.inc: gentab.py
 	python gentab.py $(SYSCALLS_HEADER) > syscalls.inc
+
+install: playpen
+	install -Dm755 $< $(DESTDIR)$(PREFIX)/bin/$<
