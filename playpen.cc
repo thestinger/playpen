@@ -344,6 +344,10 @@ int main(int argc, char **argv) {
             if (mount(nullptr, pw.pw_dir, "tmpfs", MS_NOSUID|MS_NODEV, nullptr) < 0) {
                 err(1, "mount %s", pw.pw_dir);
             }
+            // switch to the user's home directory as a login shell would
+            if (chdir(pw.pw_dir)) {
+                err(1, "chdir");
+            }
         }
 
         // create a new session
