@@ -10,7 +10,7 @@ playpen: playpen.cc syscalls.inc
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) $< $(LDLIBS) -o $@
 
 syscalls.inc: gentab.py
-	python gentab.py $(SYSCALLS_HEADER) > syscalls.inc
+	python $< $(SYSCALLS_HEADER) > $@
 
 install: playpen
 	install -Dm755 $< $(DESTDIR)$(PREFIX)/bin/$<
