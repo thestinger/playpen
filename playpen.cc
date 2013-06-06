@@ -51,7 +51,7 @@ static void init_cgroup(pid_t ppid, const char *memory_limit) {
         err(EXIT_FAILURE, "failed to create memory cgroup");
     }
 
-    snprintf(path, PATH_MAX, "/sys/fs/cgroup/memory/playpen/%jd/tasks", (intmax_t)ppid);
+    snprintf(path, PATH_MAX, "/sys/fs/cgroup/memory/playpen/%jd/cgroup.procs", (intmax_t)ppid);
     write_to(path, "0");
 
     snprintf(path, PATH_MAX, "/sys/fs/cgroup/memory/playpen/%jd/memory.limit_in_bytes", (intmax_t)ppid);
@@ -66,7 +66,7 @@ static void init_cgroup(pid_t ppid, const char *memory_limit) {
         err(EXIT_FAILURE, "failed to create device cgroup");
     }
 
-    snprintf(path, PATH_MAX, "/sys/fs/cgroup/devices/playpen/%jd/tasks", (intmax_t)ppid);
+    snprintf(path, PATH_MAX, "/sys/fs/cgroup/devices/playpen/%jd/cgroup.procs", (intmax_t)ppid);
     write_to(path, "0");
 
     snprintf(path, PATH_MAX, "/sys/fs/cgroup/devices/playpen/%jd/devices.deny", (intmax_t)ppid);
