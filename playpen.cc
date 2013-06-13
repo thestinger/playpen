@@ -138,7 +138,7 @@ static unsigned int get_syscall_nr(const char *key) {
     exit(EXIT_FAILURE);
 }
 
-static void [[noreturn]] usage(FILE *out) {
+[[noreturn]] static void usage(FILE *out) {
     fprintf(out, "usage: %s [options] [command ...]\n", program_invocation_short_name);
     fputs("Options:\n"
         " -h, --help                  display this help\n"
