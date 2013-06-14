@@ -354,11 +354,11 @@ int main(int argc, char **argv) {
             err(1, "setsid");
         }
 
-        if (setgid(pw.pw_gid) < 0) {
-            err(1, "setgid");
+        if (setresgid(pw.pw_gid, pw.pw_gid, pw.pw_gid) < 0) {
+            err(1, "setresgid");
         }
-        if (setuid(pw.pw_uid) < 0) {
-            err(1, "setuid");
+        if (setresuid(pw.pw_uid, pw.pw_uid, pw.pw_uid) < 0) {
+            err(1, "setresuid");
         }
 
         scmp_filter_ctx ctx = seccomp_init(SCMP_ACT_KILL);
