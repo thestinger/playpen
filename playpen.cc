@@ -166,15 +166,15 @@ int main(int argc, char **argv) {
     int timeout = 0;
 
     static const struct option opts[] = {
-        { "help",         no_argument,       0, 'h' },
-        { "version",      no_argument,       0, 'v' },
-        { "user",         required_argument, 0, 'u' },
-        { "root",         required_argument, 0, 'r' },
-        { "hostname",     required_argument, 0, 'n' },
-        { "timeout",      required_argument, 0, 't' },
-        { "syscalls",     required_argument, 0, 's' },
-        { "syscalls-file",required_argument, 0, 0x100 },
-        { "memory-limit", required_argument, 0, 0x101 },
+        { "help",          no_argument,       0, 'h' },
+        { "version",       no_argument,       0, 'v' },
+        { "user",          required_argument, 0, 'u' },
+        { "root",          required_argument, 0, 'r' },
+        { "hostname",      required_argument, 0, 'n' },
+        { "timeout",       required_argument, 0, 't' },
+        { "syscalls",      required_argument, 0, 's' },
+        { "syscalls-file", required_argument, 0, 0x100 },
+        { "memory-limit",  required_argument, 0, 0x101 },
         { 0, 0, 0, 0 }
     };
 
