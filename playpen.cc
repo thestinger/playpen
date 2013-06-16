@@ -148,7 +148,7 @@ static unsigned int get_syscall_nr(const char *key) {
         " -n, --hostname=NAME         the hostname to set the container to\n"
         " -t, --timeout=INTEGER       how long the container is allowed to run\n"
         " -s, --syscalls=LIST         comma separated whitelist of syscalls\n"
-        "     --syscalls-file=PATH    whitelist file containing one syscall name per line (overrides -s)\n"
+        "     --syscalls-file=PATH    whitelist file containing one syscall name per line\n"
         "     --memory-limit=LIMIT    the memory limit of the container\n", out);
 
     exit(out == stderr ? EXIT_FAILURE : EXIT_SUCCESS);
