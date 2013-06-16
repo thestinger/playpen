@@ -39,7 +39,7 @@ static void write_to(const char *path, const char *string) {
     fclose(fp);
 }
 
-static void init_cgroup(pid_t ppid, const char *memory_limit) {
+static void init_cgroup(pid_t ppid, const char *memory_limit, char *devices) {
     char path[PATH_MAX];
 
     if (mkdir("/sys/fs/cgroup/memory/playpen", 0755) < 0 && errno != EEXIST) {
@@ -73,7 +73,26 @@ static void init_cgroup(pid_t ppid, const char *memory_limit) {
     write_to(path, "a");
 
     snprintf(path, PATH_MAX, "/sys/fs/cgroup/devices/playpen/%jd/devices.allow", (intmax_t)ppid);
-    write_to(path, "c 1:9 r"); // urandom
+
+    if (devices) {
+        for (char *s_ptr = devices, *saveptr; ; s_ptr = nullptr) {
+            const char *device = strtok_r(s_ptr, ",", &saveptr);
+            if (!device) break;
+            char type;
+            unsigned major, minor;
+            int read;
+            if ((sscanf(device, "%c:%u:%u%n", &type, &major, &minor, &read) != 3 ||
+                 device[read] != '\0')) {
+                errx(1, "invalid device: %s", device);
+            }
+            FILE *fp = fopen(path, "w");
+            if (!fp) {
+                err(EXIT_FAILURE, "failed to open %s", path);
+            }
+            fprintf(fp, "%c %u:%u r", type, major, minor);
+            fclose(fp);
+        }
+    }
 }
 
 static void epoll_watch(int epoll_fd, int fd) {
@@ -148,8 +167,12 @@ static unsigned int get_syscall_nr(const char *key) {
           " -n, --hostname=NAME         the hostname to set the container to\n"
           " -t, --timeout=INTEGER       how long the container is allowed to run\n"
           " -m  --memory-limit=LIMIT    the memory limit of the container\n"
-          " -s, --syscalls=LIST         comma separated whitelist of syscalls\n"
-          "     --syscalls-file=PATH    whitelist file containing one syscall name per line\n",
+          " -s, --syscalls=LIST         comma-separated whitelist of syscalls\n"
+          "     --syscalls-file=PATH    whitelist file containing one syscall name per line\n"
+          "     --devices=LIST          comma-separated whitelist of readable devices\n"
+          "\n"
+          "Devices are taken as `type:major:minor` where `type` is `c` (char) or\n"
+          "`b` (block) and `major` and `minor` are integers.\n",
           out);
 
     exit(out == stderr ? EXIT_FAILURE : EXIT_SUCCESS);
@@ -162,6 +185,7 @@ int main(int argc, char **argv) {
     const char *root = "sandbox";
     const char *hostname = "playpen";
     char *syscalls = nullptr;
+    char *devices = nullptr;
     const char *syscalls_file = nullptr;
     std::vector<unsigned int> syscalls_from_file;
     int timeout = 0;
@@ -176,6 +200,7 @@ int main(int argc, char **argv) {
         { "memory-limit",  required_argument, 0, 'm' },
         { "syscalls",      required_argument, 0, 's' },
         { "syscalls-file", required_argument, 0, 0x100 },
+        { "devices",       required_argument, 0, 0x101 },
         { 0, 0, 0, 0 }
     };
 
@@ -211,6 +236,9 @@ int main(int argc, char **argv) {
             break;
         case 0x100:
             syscalls_file = optarg;
+            break;
+        case 0x101:
+            devices = optarg;
             break;
         default:
             usage(stderr);
@@ -290,7 +318,7 @@ int main(int argc, char **argv) {
         close(pipe_err[0]);
         close(pipe_err[1]);
 
-        init_cgroup(ppid, memory_limit);
+        init_cgroup(ppid, memory_limit, devices);
 
         if (sethostname(hostname, strlen(hostname)) < 0) {
             err(1, "sethostname");
