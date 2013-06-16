@@ -333,10 +333,13 @@ int main(int argc, char **argv) {
             err(1, "malloc");
         }
         struct passwd *p_pw = &pw;
-        getpwnam_r(username, &pw, buffer, buffer_len, &p_pw);
+        int r = getpwnam_r(username, &pw, buffer, buffer_len, &p_pw);
         if (!p_pw) {
-            fprintf(stderr, "getpwnam_r failed to find requested entry.\n");
-            return 1;
+            if (r) {
+                err(1, "getpwnam_r");
+            } else {
+                errx(1, "no passwd entry for username %s", username);
+            }
         }
 
         if (pw.pw_dir) {
