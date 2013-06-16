@@ -342,14 +342,13 @@ int main(int argc, char **argv) {
             }
         }
 
-        if (pw.pw_dir) {
-            if (mount(nullptr, pw.pw_dir, "tmpfs", MS_NOSUID|MS_NODEV, nullptr) < 0) {
-                err(1, "mount %s", pw.pw_dir);
-            }
-            // switch to the user's home directory as a login shell would
-            if (chdir(pw.pw_dir)) {
-                err(1, "chdir");
-            }
+        if (mount(nullptr, pw.pw_dir, "tmpfs", MS_NOSUID|MS_NODEV, nullptr) < 0) {
+            err(1, "mount %s", pw.pw_dir);
+        }
+
+        // switch to the user's home directory as a login shell would
+        if (chdir(pw.pw_dir)) {
+            err(1, "chdir");
         }
 
         // create a new session
@@ -362,6 +361,14 @@ int main(int argc, char **argv) {
         }
         if (setresuid(pw.pw_uid, pw.pw_uid, pw.pw_uid) < 0) {
             err(1, "setresuid");
+        }
+
+        char path[] = "PATH=/usr/local/bin:/usr/bin:/bin";
+        char *env[] = {path, nullptr, nullptr, nullptr, nullptr};
+        if ((asprintf(env + 1, "HOME=%s", pw.pw_dir) < 0 ||
+             asprintf(env + 2, "USER=%s", username) < 0 ||
+             asprintf(env + 3, "LOGNAME=%s", username) < 0)) {
+            errx(1, "asprintf");
         }
 
         scmp_filter_ctx ctx = seccomp_init(SCMP_ACT_KILL);
@@ -395,8 +402,6 @@ int main(int argc, char **argv) {
 
         check(seccomp_load(ctx));
 
-        char path[] = "PATH=/usr/local/bin:/usr/bin:/bin";
-        char *env[] = {path, nullptr};
         if (execvpe(argv[optind], argv + optind, env) < 0) {
             err(1, "execvpe");
         }
