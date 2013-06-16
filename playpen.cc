@@ -394,8 +394,8 @@ int main(int argc, char **argv) {
 
         char path[] = "PATH=/usr/local/bin:/usr/bin:/bin";
         char *env[] = {path, nullptr};
-        if (execve(argv[optind], argv + optind, env) < 0) {
-            err(1, "execve");
+        if (execvpe(argv[optind], argv + optind, env) < 0) {
+            err(1, "execvpe");
         }
     } else if (pid < 0) {
         err(1, "clone");
