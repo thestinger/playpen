@@ -217,7 +217,7 @@ int main(int argc, char **argv) {
         }
     }
 
-    if (optind == 1) {
+    if (optind == argc) {
         usage(stderr);
     }
 
