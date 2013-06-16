@@ -141,15 +141,16 @@ static unsigned int get_syscall_nr(const char *key) {
 [[noreturn]] static void usage(FILE *out) {
     fprintf(out, "usage: %s [options] [command ...]\n", program_invocation_short_name);
     fputs("Options:\n"
-        " -h, --help                  display this help\n"
-        " -v, --version               display version\n"
-        " -u, --user=USER             the user to run the program as\n"
-        " -r, --root=ROOT             the root of the container\n"
-        " -n, --hostname=NAME         the hostname to set the container to\n"
-        " -t, --timeout=INTEGER       how long the container is allowed to run\n"
-        " -s, --syscalls=LIST         comma separated whitelist of syscalls\n"
-        "     --syscalls-file=PATH    whitelist file containing one syscall name per line\n"
-        "     --memory-limit=LIMIT    the memory limit of the container\n", out);
+          " -h, --help                  display this help\n"
+          " -v, --version               display version\n"
+          " -u, --user=USER             the user to run the program as\n"
+          " -r, --root=ROOT             the root of the container\n"
+          " -n, --hostname=NAME         the hostname to set the container to\n"
+          " -t, --timeout=INTEGER       how long the container is allowed to run\n"
+          " -m  --memory-limit=LIMIT    the memory limit of the container\n"
+          " -s, --syscalls=LIST         comma separated whitelist of syscalls\n"
+          "     --syscalls-file=PATH    whitelist file containing one syscall name per line\n",
+          out);
 
     exit(out == stderr ? EXIT_FAILURE : EXIT_SUCCESS);
 }
@@ -172,14 +173,14 @@ int main(int argc, char **argv) {
         { "root",          required_argument, 0, 'r' },
         { "hostname",      required_argument, 0, 'n' },
         { "timeout",       required_argument, 0, 't' },
+        { "memory-limit",  required_argument, 0, 'm' },
         { "syscalls",      required_argument, 0, 's' },
         { "syscalls-file", required_argument, 0, 0x100 },
-        { "memory-limit",  required_argument, 0, 0x101 },
         { 0, 0, 0, 0 }
     };
 
     while (true) {
-        int opt = getopt_long(argc, argv, "hvu:r:n:t:s:", opts, nullptr);
+        int opt = getopt_long(argc, argv, "hvu:r:n:t:m:s:", opts, nullptr);
         if (opt == -1)
             break;
 
@@ -202,14 +203,14 @@ int main(int argc, char **argv) {
         case 't':
             timeout = atoi(optarg);
             break;
+        case 'm':
+            memory_limit = optarg;
+            break;
         case 's':
             syscalls = optarg;
             break;
         case 0x100:
             syscalls_file = optarg;
-            break;
-        case 0x101:
-            memory_limit = optarg;
             break;
         default:
             usage(stderr);
