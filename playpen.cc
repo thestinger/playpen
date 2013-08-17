@@ -211,7 +211,7 @@ int main(int argc, char **argv) {
             usage(stdout);
             break;
         case 'v':
-            printf("%s %s\n", program_invocation_short_name, "devel");
+            printf("%s %s\n", program_invocation_short_name, VERSION);
             return 0;
         case 'u':
             username = optarg;

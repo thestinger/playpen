@@ -7,7 +7,7 @@ LDFLAGS += -Wl,--as-needed
 SYSCALLS_HEADER ?= /usr/include/asm/unistd_64.h
 
 playpen: playpen.cc syscalls.inc
-	$(CXX) $(CXXFLAGS) $(LDFLAGS) $< $(LDLIBS) -o $@
+	$(CXX) $(CXXFLAGS) $(LDFLAGS) $< $(LDLIBS) -o $@ -DVERSION=\"$(shell git describe)\"
 
 syscalls.inc: gentab.py
 	python $< $(SYSCALLS_HEADER) > $@
