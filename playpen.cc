@@ -158,12 +158,11 @@ static unsigned int get_syscall_nr(const char *key) {
 }
 
 [[noreturn]] static void usage(FILE *out) {
-    fprintf(out, "usage: %s [options] [command ...]\n", program_invocation_short_name);
+    fprintf(out, "usage: %s [options] [root] [command ...]\n", program_invocation_short_name);
     fputs("Options:\n"
           " -h, --help                  display this help\n"
           " -v, --version               display version\n"
           " -u, --user=USER             the user to run the program as\n"
-          " -r, --root=ROOT             the root of the container\n"
           " -n, --hostname=NAME         the hostname to set the container to\n"
           " -t, --timeout=INTEGER       how long the container is allowed to run\n"
           " -m  --memory-limit=LIMIT    the memory limit of the container\n"
@@ -182,7 +181,6 @@ int main(int argc, char **argv) {
     int epoll_fd;
     const char *memory_limit = "128M";
     const char *username = "nobody";
-    const char *root = "sandbox";
     const char *hostname = "playpen";
     char *syscalls = nullptr;
     char *devices = nullptr;
@@ -194,7 +192,6 @@ int main(int argc, char **argv) {
         { "help",          no_argument,       0, 'h' },
         { "version",       no_argument,       0, 'v' },
         { "user",          required_argument, 0, 'u' },
-        { "root",          required_argument, 0, 'r' },
         { "hostname",      required_argument, 0, 'n' },
         { "timeout",       required_argument, 0, 't' },
         { "memory-limit",  required_argument, 0, 'm' },
@@ -218,9 +215,6 @@ int main(int argc, char **argv) {
             return 0;
         case 'u':
             username = optarg;
-            break;
-        case 'r':
-            root = optarg;
             break;
         case 'n':
             hostname = optarg;
@@ -246,9 +240,12 @@ int main(int argc, char **argv) {
         }
     }
 
-    if (optind == argc) {
+    if (argc - optind < 2) {
         usage(stderr);
     }
+
+    const char *root = argv[optind];
+    optind++;
 
     if (syscalls_file) {
         std::string name;
