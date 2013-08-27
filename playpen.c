@@ -1,8 +1,9 @@
+#define _GNU_SOURCE
+
+#include <stdbool.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-
-#include <vector>
 
 #include <getopt.h>
 #include <err.h>
@@ -71,7 +72,7 @@ static void init_cgroup(pid_t ppid, const char *memory_limit, char *devices) {
     snprintf(path, PATH_MAX, "/sys/fs/cgroup/devices/playpen/%jd/devices.allow", (intmax_t)ppid);
 
     if (devices) {
-        for (char *s_ptr = devices, *saveptr; ; s_ptr = nullptr) {
+        for (char *s_ptr = devices, *saveptr; ; s_ptr = NULL) {
             const char *device = strtok_r(s_ptr, ",", &saveptr);
             if (!device) break;
             char type;
@@ -99,7 +100,7 @@ static void epoll_watch(int epoll_fd, int fd) {
 
 static void copy_pipe_to(int in_fd, int out_fd) {
     while (true) {
-        ssize_t bytes_s = splice(in_fd, nullptr, out_fd, nullptr, BUFSIZ,
+        ssize_t bytes_s = splice(in_fd, NULL, out_fd, NULL, BUFSIZ,
                                  SPLICE_F_MOVE | SPLICE_F_NONBLOCK);
         if (bytes_s < 0) {
             if (errno == EAGAIN)
@@ -145,7 +146,7 @@ static int get_syscall_nr(const char *name) {
     return result;
 }
 
-[[noreturn]] static void usage(FILE *out) {
+__attribute__((noreturn)) static void usage(FILE *out) {
     fprintf(out, "usage: %s [options] [root] [command ...]\n", program_invocation_short_name);
     fputs("Options:\n"
           " -h, --help                  display this help\n"
@@ -165,15 +166,22 @@ static int get_syscall_nr(const char *name) {
     exit(out == stderr ? EXIT_FAILURE : EXIT_SUCCESS);
 }
 
+
+static void check(int rc) {
+    if (rc < 0) {
+        errx(1, "%s", strerror(-rc));
+    }
+}
+
 int main(int argc, char **argv) {
     int epoll_fd;
     const char *memory_limit = "128M";
     const char *username = "nobody";
     const char *hostname = "playpen";
-    char *syscalls = nullptr;
-    char *devices = nullptr;
-    const char *syscalls_file = nullptr;
-    std::vector<int> syscalls_from_file;
+    char *syscalls = NULL;
+    char *devices = NULL;
+    const char *syscalls_file = NULL;
+    int syscalls_from_file[500]; // upper bound on the number of syscalls
     int timeout = 0;
 
     static const struct option opts[] = {
@@ -190,7 +198,7 @@ int main(int argc, char **argv) {
     };
 
     while (true) {
-        int opt = getopt_long(argc, argv, "hvu:r:n:t:m:s:", opts, nullptr);
+        int opt = getopt_long(argc, argv, "hvu:r:n:t:m:s:", opts, NULL);
         if (opt == -1)
             break;
 
@@ -238,11 +246,13 @@ int main(int argc, char **argv) {
     if (syscalls_file) {
         char name[30]; // longest syscall name
         FILE *file = fopenx(syscalls_file, "r");
+        size_t i = 0;
         while (fgets(name, sizeof name / sizeof name[0], file)) {
             char *pos;
             if ((pos = strchr(name, '\n'))) *pos = '\0';
-            syscalls_from_file.push_back(get_syscall_nr(name));
+            syscalls_from_file[i++] = get_syscall_nr(name);
         }
+        syscalls_from_file[i] = -1;
         fclose(file);
     }
 
@@ -255,7 +265,7 @@ int main(int argc, char **argv) {
     sigemptyset(&mask);
     sigaddset(&mask, SIGCHLD);
 
-    if (sigprocmask(SIG_BLOCK, &mask, nullptr) < 0) {
+    if (sigprocmask(SIG_BLOCK, &mask, NULL) < 0) {
         err(1, "sigprocmask");
     }
 
@@ -291,7 +301,7 @@ int main(int argc, char **argv) {
     pid_t ppid = getpid(); // getppid() in the child won't work
     pid_t pid = syscall(__NR_clone,
                         SIGCHLD|CLONE_NEWIPC|CLONE_NEWNS|CLONE_NEWPID|CLONE_NEWUTS|CLONE_NEWNET,
-                        nullptr);
+                        NULL);
 
     if (pid == 0) {
         close(0);
@@ -310,17 +320,17 @@ int main(int argc, char **argv) {
         }
 
         // avoid propagating mounts to or from the real root
-        if (mount(nullptr, "/", nullptr, MS_PRIVATE|MS_REC, nullptr) < 0) {
+        if (mount(NULL, "/", NULL, MS_PRIVATE|MS_REC, NULL) < 0) {
             err(1, "mount /");
         }
 
         // turn directory into a bind mount
-        if (mount(root, root, "bind", MS_BIND|MS_REC, nullptr) < 0) {
+        if (mount(root, root, "bind", MS_BIND|MS_REC, NULL) < 0) {
             err(1, "bind mount");
         }
 
         // re-mount as read-only
-        if (mount(root, root, "bind", MS_BIND|MS_REMOUNT|MS_RDONLY|MS_REC, nullptr) < 0) {
+        if (mount(root, root, "bind", MS_BIND|MS_REMOUNT|MS_RDONLY|MS_REC, NULL) < 0) {
             err(1, "remount bind mount");
         }
 
@@ -332,11 +342,11 @@ int main(int argc, char **argv) {
             err(1, "chdir");
         }
 
-        if (mount(nullptr, "/proc", "proc", MS_NOSUID|MS_NOEXEC|MS_NODEV, nullptr) < 0) {
+        if (mount(NULL, "/proc", "proc", MS_NOSUID|MS_NOEXEC|MS_NODEV, NULL) < 0) {
             err(1, "mount /proc");
         }
 
-        if (mount(nullptr, "/tmp", "tmpfs", MS_NOSUID|MS_NODEV, nullptr) < 0) {
+        if (mount(NULL, "/tmp", "tmpfs", MS_NOSUID|MS_NODEV, NULL) < 0) {
             err(1, "mount /tmp");
         }
 
@@ -356,7 +366,7 @@ int main(int argc, char **argv) {
             }
         }
 
-        if (mount(nullptr, pw.pw_dir, "tmpfs", MS_NOSUID|MS_NODEV, nullptr) < 0) {
+        if (mount(NULL, pw.pw_dir, "tmpfs", MS_NOSUID|MS_NODEV, NULL) < 0) {
             err(1, "mount %s", pw.pw_dir);
         }
 
@@ -378,7 +388,7 @@ int main(int argc, char **argv) {
         }
 
         char path[] = "PATH=/usr/local/bin:/usr/bin:/bin";
-        char *env[] = {path, nullptr, nullptr, nullptr, nullptr};
+        char *env[] = {path, NULL, NULL, NULL, NULL};
         if ((asprintf(env + 1, "HOME=%s", pw.pw_dir) < 0 ||
              asprintf(env + 2, "USER=%s", username) < 0 ||
              asprintf(env + 3, "LOGNAME=%s", username) < 0)) {
@@ -390,28 +400,19 @@ int main(int argc, char **argv) {
             return 1;
         }
 
-        auto check = [](int rc) {
-            if (rc < 0) {
-                errx(1, "%s", strerror(-rc));
-            }
-        };
-
-        auto allow = [ctx, check](int syscall) {
-            check(seccomp_rule_add(ctx, SCMP_ACT_ALLOW, syscall, 0));
-        };
-
-        allow(__NR_execve);
+        check(seccomp_rule_add(ctx, SCMP_ACT_ALLOW, __NR_execve, 0));
 
         if (syscalls) {
-            for (char *s_ptr = syscalls, *saveptr; ; s_ptr = nullptr) {
+            for (char *s_ptr = syscalls, *saveptr; ; s_ptr = NULL) {
                 const char *syscall = strtok_r(s_ptr, ",", &saveptr);
                 if (!syscall) break;
-                allow(get_syscall_nr(syscall));
+                check(seccomp_rule_add(ctx, SCMP_ACT_ALLOW, get_syscall_nr(syscall), 0));
             }
         }
 
-        for (unsigned int syscall: syscalls_from_file) {
-            allow(syscall);
+        for (size_t i = 0; i < sizeof syscalls_from_file / sizeof syscalls_from_file[0]; i++) {
+            if (i == -1) break;
+            check(seccomp_rule_add(ctx, SCMP_ACT_ALLOW, syscalls_from_file[i], 0));
         }
 
         check(seccomp_load(ctx));
@@ -429,7 +430,7 @@ int main(int argc, char **argv) {
         struct itimerspec spec = {};
         spec.it_value.tv_sec = timeout;
 
-        if (timerfd_settime(timer_fd, 0, &spec, nullptr) < 0)
+        if (timerfd_settime(timer_fd, 0, &spec, NULL) < 0)
             err(EXIT_FAILURE, "timerfd_settime");
     }
 
