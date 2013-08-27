@@ -299,9 +299,12 @@ int main(int argc, char **argv) {
     epoll_watch(epoll_fd, pipe_err[0]);
 
     pid_t ppid = getpid(); // getppid() in the child won't work
-    pid_t pid = syscall(__NR_clone,
-                        SIGCHLD|CLONE_NEWIPC|CLONE_NEWNS|CLONE_NEWPID|CLONE_NEWUTS|CLONE_NEWNET,
-                        NULL);
+
+    if (unshare(CLONE_NEWIPC|CLONE_NEWNS|CLONE_NEWPID|CLONE_NEWUTS|CLONE_NEWNET) < 0) {
+        err(EXIT_FAILURE, "unshare");
+    }
+
+    pid_t pid = fork();
 
     if (pid == 0) {
         close(0);
@@ -421,7 +424,7 @@ int main(int argc, char **argv) {
             err(1, "execvpe");
         }
     } else if (pid < 0) {
-        err(1, "clone");
+        err(1, "fork");
     }
 
     atexit(kill_group);
