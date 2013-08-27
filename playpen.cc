@@ -3,8 +3,6 @@
 #include <string.h>
 
 #include <array>
-#include <iostream>
-#include <fstream>
 #include <vector>
 
 #include <getopt.h>
@@ -30,11 +28,14 @@ using syscall_pair = std::pair<const char *const, const unsigned>;
 
 #include "syscalls.inc"
 
+static FILE *fopenx(const char *path, const char *mode) {
+    FILE *f = fopen(path, mode);
+    if (!f) err(EXIT_FAILURE, "failed to open %s", path);
+    return f;
+}
+
 static void write_to(const char *path, const char *string) {
-    FILE *fp = fopen(path, "w");
-    if (!fp) {
-        err(EXIT_FAILURE, "failed to open %s", path);
-    }
+    FILE *fp = fopenx(path, "w");
     fputs(string, fp);
     fclose(fp);
 }
@@ -85,10 +86,7 @@ static void init_cgroup(pid_t ppid, const char *memory_limit, char *devices) {
                  device[read] != '\0')) {
                 errx(1, "invalid device: %s", device);
             }
-            FILE *fp = fopen(path, "w");
-            if (!fp) {
-                err(EXIT_FAILURE, "failed to open %s", path);
-            }
+            FILE *fp = fopenx(path, "w");
             fprintf(fp, "%c %u:%u r", type, major, minor);
             fclose(fp);
         }
@@ -123,13 +121,14 @@ static void kill_group() {
 
     bool done = false;
     do {
-        std::ifstream procs(path);
+        FILE *proc = fopen(path, "r");
         pid_t pid;
         done = true;
-        while (procs >> pid) {
+        while (fscanf(proc, "%u", &pid) == 1) {
             kill(pid, SIGKILL);
             done = false;
         }
+        fclose(proc);
     } while (!done);
 
     snprintf(path, PATH_MAX, "/sys/fs/cgroup/memory/playpen/%jd", (intmax_t)pid);
@@ -248,12 +247,14 @@ int main(int argc, char **argv) {
     optind++;
 
     if (syscalls_file) {
-        std::string name;
-        std::ifstream file(syscalls_file);
-
-        while (std::getline(file, name)) {
-            syscalls_from_file.push_back(get_syscall_nr(name.c_str()));
+        char name[30]; // longest syscall name
+        FILE *file = fopenx(syscalls_file, "r");
+        while (fgets(name, sizeof name / sizeof name[0], file)) {
+            char *pos;
+            if ((pos = strchr(name, '\n'))) *pos = '\0';
+            syscalls_from_file.push_back(get_syscall_nr(name));
         }
+        fclose(file);
     }
 
     epoll_fd = epoll_create1(EPOLL_CLOEXEC);
