@@ -411,7 +411,7 @@ int main(int argc, char **argv) {
         }
 
         for (size_t i = 0; i < sizeof syscalls_from_file / sizeof syscalls_from_file[0]; i++) {
-            if (i == -1) break;
+            if (syscalls_from_file[i] == -1) break;
             check(seccomp_rule_add(ctx, SCMP_ACT_ALLOW, syscalls_from_file[i], 0));
         }
 
