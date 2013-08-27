@@ -2,7 +2,6 @@
 #include <stdio.h>
 #include <string.h>
 
-#include <array>
 #include <vector>
 
 #include <getopt.h>
@@ -23,10 +22,6 @@
 #include <sys/timerfd.h>
 
 #include <seccomp.h>
-
-using syscall_pair = std::pair<const char *const, const unsigned>;
-
-#include "syscalls.inc"
 
 static FILE *fopenx(const char *path, const char *mode) {
     FILE *f = fopen(path, mode);
@@ -142,18 +137,12 @@ static void kill_group() {
     }
 }
 
-static int cmp(const void *key, const void *p) {
-    return strcmp((const char *)key, ((syscall_pair *)p)->first);
-}
-
-static unsigned int get_syscall_nr(const char *key) {
-    auto result = (syscall_pair *)bsearch(key, nrs.data(), nrs.size(), sizeof nrs[0], cmp);
-    if (result) {
-        return result->second;
+static int get_syscall_nr(const char *name) {
+    int result = seccomp_syscall_resolve_name(name);
+    if (result == __NR_SCMP_ERROR) {
+        errx(EXIT_FAILURE, "non-existent syscall: %s", name);
     }
-
-    fprintf(stderr, "Error: non-existent syscall %s\n", key);
-    exit(EXIT_FAILURE);
+    return result;
 }
 
 [[noreturn]] static void usage(FILE *out) {
@@ -184,7 +173,7 @@ int main(int argc, char **argv) {
     char *syscalls = nullptr;
     char *devices = nullptr;
     const char *syscalls_file = nullptr;
-    std::vector<unsigned int> syscalls_from_file;
+    std::vector<int> syscalls_from_file;
     int timeout = 0;
 
     static const struct option opts[] = {
