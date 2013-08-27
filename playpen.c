@@ -117,7 +117,7 @@ static void kill_group() {
 
     bool done = false;
     do {
-        FILE *proc = fopen(path, "r");
+        FILE *proc = fopenx(path, "r");
         pid_t pid;
         done = true;
         while (fscanf(proc, "%u", &pid) == 1) {
