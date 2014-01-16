@@ -8,3 +8,8 @@ so no locking is required and multiple playpen instances can share the same root
 A memory cgroup is used to limit the available memory resources, and a device cgroup to implement
 whitelisting for devices. A cgroup is also used to reliably kill the application and any forked
 children after an optional timeout.
+
+# Dependencies
+
+* Linux 3.8 or later
+* [libseccomp](http://sourceforge.net/projects/libseccomp/)
