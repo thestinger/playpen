@@ -180,11 +180,11 @@ static void close_file_descriptors() {
      if (!dir) {
          err(EXIT_FAILURE, "opendir");
      }
-     int dir_fd = dirfd(dir);
      struct dirent *dp;
      while ((dp = readdir(dir)) != NULL) {
-         int fd = atoi(dp->d_name);
-         if (fd != STDIN_FILENO && fd != STDOUT_FILENO && fd != STDERR_FILENO && fd != dir_fd) {
+         char *end;
+         int fd = strtol(dp->d_name, &end, 10);
+         if (*end == '\0' && fd > 2 && fd != dirfd(dir)) {
              close(fd);
          }
      }
