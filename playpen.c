@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include <getopt.h>
+#include <dirent.h>
 #include <err.h>
 #include <errno.h>
 #include <linux/limits.h>
@@ -173,7 +174,26 @@ static void check(int rc) {
     }
 }
 
+// Close any extra file descriptors. Only `stdin`, `stdout` and `stderr` are left open.
+static void close_file_descriptors() {
+     DIR *dir = opendir("/proc/self/fd");
+     if (!dir) {
+         err(EXIT_FAILURE, "opendir");
+     }
+     int dir_fd = dirfd(dir);
+     struct dirent *dp;
+     while ((dp = readdir(dir)) != NULL) {
+         int fd = atoi(dp->d_name);
+         if (fd != STDIN_FILENO && fd != STDOUT_FILENO && fd != STDERR_FILENO && fd != dir_fd) {
+             close(fd);
+         }
+     }
+     closedir(dir);
+}
+
 int main(int argc, char **argv) {
+    close_file_descriptors();
+
     int epoll_fd;
     const char *memory_limit = "128M";
     const char *username = "nobody";
