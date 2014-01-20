@@ -16,6 +16,7 @@
 #include <sched.h>
 #include <signal.h>
 #include <sys/mount.h>
+#include <sys/prctl.h>
 #include <sys/resource.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -315,6 +316,12 @@ int main(int argc, char **argv) {
         err(1, "pipe");
     }
 
+    // A pipe for checking if this process is dead from the child.
+    int pipe_parent_alive[2];
+    if (pipe2(pipe_parent_alive, O_CLOEXEC) < 0) {
+        err(1, "pipe");
+    }
+
     epoll_watch(epoll_fd, pipe_out[0]);
     epoll_watch(epoll_fd, pipe_err[0]);
 
@@ -337,6 +344,24 @@ int main(int argc, char **argv) {
         close(pipe_err[1]);
 
         init_cgroup(ppid, memory_limit, devices);
+
+        // Kill this process if the parent dies. This is not a replacement for killing the sandboxed
+        // processes via a control group as it is not inherited by child processes, but is more
+        // robust when the sandboxed process is not allowed to fork.
+        prctl(PR_SET_PDEATHSIG, SIGKILL);
+
+        // Make sure the parent didn't die before calling `prctl`.
+        close(pipe_parent_alive[0]);
+        for (;;) {
+            if (write(pipe_parent_alive[1], &(uint8_t) { 0 }, 1) == -1) {
+                if (errno == EINTR) {
+                    continue;
+                } else {
+                    err(EXIT_FAILURE, "write");
+                }
+            }
+            break;
+        }
 
         if (sethostname(hostname, strlen(hostname)) < 0) {
             err(1, "sethostname");
