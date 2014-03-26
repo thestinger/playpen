@@ -347,9 +347,9 @@ int main(int argc, char **argv) {
     pid_t pid = fork();
 
     if (pid == 0) {
-        close(0);
-        dup2(pipe_out[1], 1);
-        dup2(pipe_err[1], 2);
+        close(STDIN_FILENO);
+        dup2(pipe_out[1], STDOUT_FILENO);
+        dup2(pipe_err[1], STDERR_FILENO);
 
         close(pipe_out[0]);
         close(pipe_out[1]);
@@ -529,9 +529,9 @@ int main(int argc, char **argv) {
                     break;
                 }
             } else if (evt->data.fd == pipe_out[0]) {
-                copy_pipe_to(pipe_out[0], 1);
+                copy_pipe_to(pipe_out[0], STDOUT_FILENO);
             } else if (evt->data.fd == pipe_err[0]) {
-                copy_pipe_to(pipe_err[0], 2);
+                copy_pipe_to(pipe_err[0], STDERR_FILENO);
             }
         }
     }
