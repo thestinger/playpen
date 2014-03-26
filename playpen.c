@@ -160,10 +160,11 @@ __attribute__((noreturn)) static void usage(FILE *out) {
     fputs("Options:\n"
           " -h, --help                  display this help\n"
           " -v, --version               display version\n"
+          " -p, --mount-proc            mount /proc in the container\n"
           " -u, --user=USER             the user to run the program as\n"
           " -n, --hostname=NAME         the hostname to set the container to\n"
           " -t, --timeout=INTEGER       how long the container is allowed to run\n"
-          " -m  --memory-limit=LIMIT    the memory limit of the container\n"
+          " -m, --memory-limit=LIMIT    the memory limit of the container\n"
           " -s, --syscalls=LIST         comma-separated whitelist of syscalls\n"
           "     --syscalls-file=PATH    whitelist file containing one syscall name per line\n"
           "     --devices=LIST          comma-separated whitelist of readable devices\n"
@@ -211,10 +212,12 @@ int main(int argc, char **argv) {
     const char *syscalls_file = NULL;
     int syscalls_from_file[500]; // upper bound on the number of syscalls
     int timeout = 0;
+    bool mount_proc = false;
 
     static const struct option opts[] = {
         { "help",          no_argument,       0, 'h' },
         { "version",       no_argument,       0, 'v' },
+        { "mount-proc",    no_argument,       0, 'p' },
         { "user",          required_argument, 0, 'u' },
         { "hostname",      required_argument, 0, 'n' },
         { "timeout",       required_argument, 0, 't' },
@@ -226,7 +229,7 @@ int main(int argc, char **argv) {
     };
 
     while (true) {
-        int opt = getopt_long(argc, argv, "hvu:r:n:t:m:s:", opts, NULL);
+        int opt = getopt_long(argc, argv, "hvpu:r:n:t:m:s:", opts, NULL);
         if (opt == -1)
             break;
 
@@ -237,6 +240,9 @@ int main(int argc, char **argv) {
         case 'v':
             printf("%s %s\n", program_invocation_short_name, VERSION);
             return 0;
+        case 'p':
+            mount_proc = true;
+            break;
         case 'u':
             username = optarg;
             break;
@@ -391,7 +397,9 @@ int main(int argc, char **argv) {
             err(1, "chdir");
         }
 
-        mountx(NULL, "/proc", "proc", MS_NOSUID|MS_NOEXEC|MS_NODEV, NULL);
+        if (mount_proc) {
+            mountx(NULL, "/proc", "proc", MS_NOSUID|MS_NOEXEC|MS_NODEV, NULL);
+        }
         mountx(NULL, "/dev/shm", "tmpfs", MS_NOSUID|MS_NODEV, NULL);
         mountx(NULL, "/tmp", "tmpfs", MS_NOSUID|MS_NODEV, NULL);
 
