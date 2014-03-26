@@ -32,6 +32,13 @@ static FILE *fopenx(const char *path, const char *mode) {
     return f;
 }
 
+static void mountx(const char *source, const char *target, const char *filesystemtype,
+                   unsigned long mountflags, const void *data) {
+    if (mount(source, target, filesystemtype, mountflags, data) < 0) {
+        err(1, "mounting %s failed", target);
+    }
+}
+
 static void write_to(const char *path, const char *string) {
     FILE *fp = fopenx(path, "w");
     fputs(string, fp);
@@ -368,19 +375,13 @@ int main(int argc, char **argv) {
         }
 
         // avoid propagating mounts to or from the real root
-        if (mount(NULL, "/", NULL, MS_PRIVATE|MS_REC, NULL) < 0) {
-            err(1, "mount /");
-        }
+        mountx(NULL, "/", NULL, MS_PRIVATE|MS_REC, NULL);
 
         // turn directory into a bind mount
-        if (mount(root, root, "bind", MS_BIND|MS_REC, NULL) < 0) {
-            err(1, "bind mount");
-        }
+        mountx(root, root, "bind", MS_BIND|MS_REC, NULL);
 
         // re-mount as read-only
-        if (mount(root, root, "bind", MS_BIND|MS_REMOUNT|MS_RDONLY|MS_REC, NULL) < 0) {
-            err(1, "remount bind mount");
-        }
+        mountx(root, root, "bind", MS_BIND|MS_REMOUNT|MS_RDONLY|MS_REC, NULL);
 
         if (chroot(root) < 0) {
             err(1, "chroot");
@@ -390,13 +391,8 @@ int main(int argc, char **argv) {
             err(1, "chdir");
         }
 
-        if (mount(NULL, "/proc", "proc", MS_NOSUID|MS_NOEXEC|MS_NODEV, NULL) < 0) {
-            err(1, "mount /proc");
-        }
-
-        if (mount(NULL, "/tmp", "tmpfs", MS_NOSUID|MS_NODEV, NULL) < 0) {
-            err(1, "mount /tmp");
-        }
+        mountx(NULL, "/proc", "proc", MS_NOSUID|MS_NOEXEC|MS_NODEV, NULL);
+        mountx(NULL, "/tmp", "tmpfs", MS_NOSUID|MS_NODEV, NULL);
 
         struct passwd pw;
         size_t buffer_len = sysconf(_SC_GETPW_R_SIZE_MAX);
@@ -414,9 +410,7 @@ int main(int argc, char **argv) {
             }
         }
 
-        if (mount(NULL, pw.pw_dir, "tmpfs", MS_NOSUID|MS_NODEV, NULL) < 0) {
-            err(1, "mount %s", pw.pw_dir);
-        }
+        mountx(NULL, pw.pw_dir, "tmpfs", MS_NOSUID|MS_NODEV, NULL);
 
         // switch to the user's home directory as a login shell would
         if (chdir(pw.pw_dir)) {
