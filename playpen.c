@@ -392,6 +392,7 @@ int main(int argc, char **argv) {
         }
 
         mountx(NULL, "/proc", "proc", MS_NOSUID|MS_NOEXEC|MS_NODEV, NULL);
+        mountx(NULL, "/dev/shm", "tmpfs", MS_NOSUID|MS_NODEV, NULL);
         mountx(NULL, "/tmp", "tmpfs", MS_NOSUID|MS_NODEV, NULL);
 
         struct passwd pw;
