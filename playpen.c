@@ -403,26 +403,20 @@ int main(int argc, char **argv) {
         mountx(NULL, "/dev/shm", "tmpfs", MS_NOSUID|MS_NODEV, NULL);
         mountx(NULL, "/tmp", "tmpfs", MS_NOSUID|MS_NODEV, NULL);
 
-        struct passwd pw;
-        size_t buffer_len = sysconf(_SC_GETPW_R_SIZE_MAX);
-        char *buffer = (char *)malloc(buffer_len);
-        if (!buffer) {
-            err(1, "malloc");
-        }
-        struct passwd *p_pw = &pw;
-        int r = getpwnam_r(username, &pw, buffer, buffer_len, &p_pw);
-        if (!p_pw) {
-            if (r) {
-                err(1, "getpwnam_r");
+        errno = 0;
+        struct passwd *pw = getpwnam(username);
+        if (!pw) {
+            if (errno) {
+                err(1, "getpwnam");
             } else {
                 errx(1, "no passwd entry for username %s", username);
             }
         }
 
-        mountx(NULL, pw.pw_dir, "tmpfs", MS_NOSUID|MS_NODEV, NULL);
+        mountx(NULL, pw->pw_dir, "tmpfs", MS_NOSUID|MS_NODEV, NULL);
 
         // switch to the user's home directory as a login shell would
-        if (chdir(pw.pw_dir)) {
+        if (chdir(pw->pw_dir)) {
             err(1, "chdir");
         }
 
@@ -431,16 +425,16 @@ int main(int argc, char **argv) {
             err(1, "setsid");
         }
 
-        if (setresgid(pw.pw_gid, pw.pw_gid, pw.pw_gid) < 0) {
+        if (setresgid(pw->pw_gid, pw->pw_gid, pw->pw_gid) < 0) {
             err(1, "setresgid");
         }
-        if (setresuid(pw.pw_uid, pw.pw_uid, pw.pw_uid) < 0) {
+        if (setresuid(pw->pw_uid, pw->pw_uid, pw->pw_uid) < 0) {
             err(1, "setresuid");
         }
 
         char path[] = "PATH=/usr/local/bin:/usr/bin:/bin";
         char *env[] = {path, NULL, NULL, NULL, NULL};
-        if ((asprintf(env + 1, "HOME=%s", pw.pw_dir) < 0 ||
+        if ((asprintf(env + 1, "HOME=%s", pw->pw_dir) < 0 ||
              asprintf(env + 2, "USER=%s", username) < 0 ||
              asprintf(env + 3, "LOGNAME=%s", username) < 0)) {
             errx(1, "asprintf");
