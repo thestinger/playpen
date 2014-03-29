@@ -1,13 +1,20 @@
-Playpen is a secure application sandbox implemented with namespaces, cgroups and seccomp.
+Playpen is a secure application sandbox built with modern Linux sandboxing features.
 
-By default, only the `execve` system call is permitted and other system calls must be explicitly
-whitelisted. The application is spawned in clean namespaces, so it's unable to see or modify the
-system's mount points, processes, network or hostname. The chroot uses a read-only root directory,
-so no locking is required and multiple playpen instances can share the same root.
+# Features
 
-A memory cgroup is used to limit the available memory resources, and a device cgroup to implement
-whitelisting for devices. A cgroup is also used to reliably kill the application and any forked
-children after an optional timeout.
+* The sandboxed application is spawned inside a systemd scope unit, providing
+  integration with systemd tools like `systemd-cgtop`.
+* The application is contained inside a read-only root directory with `chroot`.
+  A private mount namespace allows for any number of playpen instances to share the
+  same root concurrently while still having a writable in-memory /tmp, /dev/shm
+  and home directory.
+* System call whitelisting forbids all but the `execve` call by default.
+* Device whitelisting prevents reading, writing or creating any devices by default.
+* The initial process and any forked children can be reliably killed.
+* An optional timeout can take care of automatically killing the contained processes.
+* A process namespace hides all external processes from the sandbox.
+* A network namespace provides a private loopback and no external interfaces.
+* The system's hostname and IPC resources are hidden from the sandbox.
 
 # Dependencies
 
