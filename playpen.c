@@ -159,7 +159,6 @@ __attribute__((noreturn)) static void usage(FILE *out) {
     exit(out == stderr ? EXIT_FAILURE : EXIT_SUCCESS);
 }
 
-
 // Close any extra file descriptors. Only `stdin`, `stdout` and `stderr` are left open.
 static void close_file_descriptors() {
      DIR *dir = opendir("/proc/self/fd");
