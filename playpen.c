@@ -496,8 +496,7 @@ int main(int argc, char **argv) {
             if (evt->events & EPOLLERR || evt->events & EPOLLHUP) {
                 close(evt->data.fd);
             } else if (evt->data.fd == timer_fd) {
-                fprintf(stderr, "timeout triggered!\n");
-                return 1;
+                errx(EXIT_FAILURE, "timeout triggered!");
             } else if (evt->data.fd == sig_fd) {
                 struct signalfd_siginfo si;
                 ssize_t bytes_r = read(sig_fd, &si, sizeof(si));
@@ -505,24 +504,21 @@ int main(int argc, char **argv) {
                 if (bytes_r < 0) {
                     err(1, "read");
                 } else if (bytes_r != sizeof(si)) {
-                    fprintf(stderr, "read the wrong about of bytes\n");
-                    return 1;
+                    errx(EXIT_FAILURE, "read the wrong amount of bytes");
                 } else if (si.ssi_signo != SIGCHLD) {
-                    fprintf(stderr, "got an unexpected signal\n");
-                    return 1;
+                    errx(EXIT_FAILURE, "got an unexpected signal");
                 }
 
                 switch (si.ssi_code) {
                 case CLD_EXITED:
                     if (si.ssi_status) {
-                        fprintf(stderr, "application terminated with error code %d\n", si.ssi_status);
+                        warnx("application terminated with error code %d", si.ssi_status);
                     }
                     return si.ssi_status;
                 case CLD_KILLED:
                 case CLD_DUMPED:
-                    fprintf(stderr, "application terminated abnormally with signal %d (%s)\n",
-                            si.ssi_status, strsignal(si.ssi_status));
-                    return 1;
+                    errx(EXIT_FAILURE, "application terminated abnormally with signal %d (%s)",
+                         si.ssi_status, strsignal(si.ssi_status));
                 case CLD_TRAPPED:
                 case CLD_STOPPED:
                 default:
