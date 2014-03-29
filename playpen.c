@@ -24,78 +24,92 @@
 #include <sys/signalfd.h>
 #include <sys/timerfd.h>
 
+#include <systemd/sd-login.h>
+#include <gio/gio.h>
 #include <seccomp.h>
 
-static FILE *fopenx(const char *path, const char *mode) {
-    FILE *f = fopen(path, mode);
-    if (!f) err(EXIT_FAILURE, "failed to open %s", path);
-    return f;
+static void check(int rc) {
+    if (rc < 0) errx(1, "%s", strerror(-rc));
 }
 
 static void mountx(const char *source, const char *target, const char *filesystemtype,
                    unsigned long mountflags, const void *data) {
-    if (mount(source, target, filesystemtype, mountflags, data) < 0) {
+    if (mount(source, target, filesystemtype, mountflags, data) < 0)
         err(1, "mounting %s failed", target);
+}
+
+static const char *const systemd_bus_name = "org.freedesktop.systemd1";
+static const char *const systemd_path_name = "/org/freedesktop/systemd1";
+static const char *const manager_interface = "org.freedesktop.systemd1.Manager";
+
+static GDBusConnection *get_system_bus() {
+    GError *error = NULL;
+    GDBusConnection *connection = g_bus_get_sync(G_BUS_TYPE_SYSTEM, NULL, &error);
+    if (error) errx(EXIT_FAILURE, "%s\n", error->message);
+    return connection;
+}
+
+static void wait_for_unit(GDBusConnection *connection, pid_t child_pid, const char *expected_name) {
+    for (;;) {
+        char *unit;
+        check(sd_pid_get_unit(child_pid, &unit));
+        bool equal = !strcmp(expected_name, unit);
+        free(unit);
+        if (equal) break;
     }
 }
 
-static void write_to(const char *path, const char *string) {
-    FILE *fp = fopenx(path, "w");
-    fputs(string, fp);
-    fclose(fp);
-}
+static void start_scope_unit(GDBusConnection *connection, pid_t child_pid, unsigned memory_limit,
+                             char *devices, const char *unit_name) {
+    GVariantBuilder *pids = g_variant_builder_new(G_VARIANT_TYPE("au"));
+    g_variant_builder_add(pids, "u", child_pid);
 
-static void init_cgroup(pid_t ppid, const char *memory_limit, char *devices) {
-    char path[PATH_MAX];
-
-    if (mkdir("/sys/fs/cgroup/memory/playpen", 0755) < 0 && errno != EEXIST) {
-        err(EXIT_FAILURE, "failed to create memory cgroup");
-    }
-
-    snprintf(path, PATH_MAX, "/sys/fs/cgroup/memory/playpen/%jd", (intmax_t)ppid);
-    if (mkdir(path, 0755) < 0 && errno != EEXIST) {
-        err(EXIT_FAILURE, "failed to create memory cgroup");
-    }
-
-    snprintf(path, PATH_MAX, "/sys/fs/cgroup/memory/playpen/%jd/cgroup.procs", (intmax_t)ppid);
-    write_to(path, "0");
-
-    snprintf(path, PATH_MAX, "/sys/fs/cgroup/memory/playpen/%jd/memory.limit_in_bytes", (intmax_t)ppid);
-    write_to(path, memory_limit);
-
-    if (mkdir("/sys/fs/cgroup/devices/playpen", 0755) < 0 && errno != EEXIST) {
-        err(EXIT_FAILURE, "failed to create device cgroup");
-    }
-
-    snprintf(path, PATH_MAX, "/sys/fs/cgroup/devices/playpen/%jd", (intmax_t)ppid);
-    if (mkdir(path, 0755) < 0 && errno != EEXIST) {
-        err(EXIT_FAILURE, "failed to create device cgroup");
-    }
-
-    snprintf(path, PATH_MAX, "/sys/fs/cgroup/devices/playpen/%jd/cgroup.procs", (intmax_t)ppid);
-    write_to(path, "0");
-
-    snprintf(path, PATH_MAX, "/sys/fs/cgroup/devices/playpen/%jd/devices.deny", (intmax_t)ppid);
-    write_to(path, "a");
-
-    snprintf(path, PATH_MAX, "/sys/fs/cgroup/devices/playpen/%jd/devices.allow", (intmax_t)ppid);
+    GVariantBuilder *allowed = g_variant_builder_new(G_VARIANT_TYPE("a(ss)"));
 
     if (devices) {
         for (char *s_ptr = devices, *saveptr; ; s_ptr = NULL) {
             const char *device = strtok_r(s_ptr, ",", &saveptr);
             if (!device) break;
-            char type;
-            unsigned major, minor;
-            int read;
-            if ((sscanf(device, "%c:%u:%u%n", &type, &major, &minor, &read) != 3 ||
-                 device[read] != '\0')) {
-                errx(1, "invalid device: %s", device);
-            }
-            FILE *fp = fopenx(path, "w");
-            fprintf(fp, "%c %u:%u r", type, major, minor);
-            fclose(fp);
+            char *split = strchr(device, ':');
+            if (!split) errx(EXIT_FAILURE, "invalid device parameter `%s`", device);
+            *split = '\0';
+            g_variant_builder_add(allowed, "(ss)", device, split + 1);
         }
     }
+
+    GVariantBuilder *properties = g_variant_builder_new(G_VARIANT_TYPE("a(sv)"));
+    g_variant_builder_add(properties, "(sv)", "Description",
+                          g_variant_new("s", "Playpen application sandbox"));
+    g_variant_builder_add(properties, "(sv)", "PIDs", g_variant_new("au", pids));
+    g_variant_builder_add(properties, "(sv)", "MemoryLimit",
+                          g_variant_new("t", 1024ULL * 1024ULL * memory_limit));
+    g_variant_builder_add(properties, "(sv)", "DevicePolicy", g_variant_new("s", "strict"));
+    g_variant_builder_add(properties, "(sv)", "DeviceAllow", g_variant_new("a(ss)", allowed));
+
+    GError *error = NULL;
+    GVariant *reply = g_dbus_connection_call_sync(connection, systemd_bus_name, systemd_path_name,
+                                                  manager_interface, "StartTransientUnit",
+                                                  g_variant_new("(ssa(sv)a(sa(sv)))",
+                                                                unit_name,
+                                                                "fail",
+                                                                properties,
+                                                                NULL),
+                                                  G_VARIANT_TYPE("(o)"),
+                                                  G_DBUS_CALL_FLAGS_NONE, -1, NULL, &error);
+    if (error) errx(EXIT_FAILURE, "%s\n", error->message);
+    g_variant_unref(reply);
+    wait_for_unit(connection, child_pid, unit_name);
+}
+
+static void stop_scope_unit(GDBusConnection *connection, const char *unit_name) {
+    GError *error = NULL;
+    GVariant *reply = g_dbus_connection_call_sync(connection, systemd_bus_name, systemd_path_name,
+                                                  manager_interface, "StopUnit",
+                                                  g_variant_new("(ss)", unit_name, "fail"),
+                                                  G_VARIANT_TYPE("(o)"),
+                                                  G_DBUS_CALL_FLAGS_NONE, -1, NULL, &error);
+    if (error) errx(EXIT_FAILURE, "%s\n", error->message);
+    g_variant_unref(reply);
 }
 
 static void epoll_watch(int epoll_fd, int fd) {
@@ -119,34 +133,6 @@ static void copy_pipe_to(int in_fd, int out_fd) {
     }
 }
 
-static void kill_group() {
-    pid_t pid = getpid();
-    char path[PATH_MAX];
-    snprintf(path, PATH_MAX, "/sys/fs/cgroup/memory/playpen/%jd/cgroup.procs", (intmax_t)pid);
-
-    bool done = false;
-    do {
-        FILE *proc = fopenx(path, "r");
-        pid_t pid;
-        done = true;
-        while (fscanf(proc, "%u", &pid) == 1) {
-            kill(pid, SIGKILL);
-            done = false;
-        }
-        fclose(proc);
-    } while (!done);
-
-    snprintf(path, PATH_MAX, "/sys/fs/cgroup/memory/playpen/%jd", (intmax_t)pid);
-    if (rmdir(path) < 0 && errno != ENOENT) {
-        err(1, "rmdir");
-    }
-
-    snprintf(path, PATH_MAX, "/sys/fs/cgroup/devices/playpen/%jd", (intmax_t)pid);
-    if (rmdir(path) < 0 && errno != ENOENT) {
-        err(1, "rmdir");
-    }
-}
-
 static int get_syscall_nr(const char *name) {
     int result = seccomp_syscall_resolve_name(name);
     if (result == __NR_SCMP_ERROR) {
@@ -165,23 +151,14 @@ __attribute__((noreturn)) static void usage(FILE *out) {
           " -n, --hostname=NAME         the hostname to set the container to\n"
           " -t, --timeout=INTEGER       how long the container is allowed to run\n"
           " -m, --memory-limit=LIMIT    the memory limit of the container\n"
+          " -d, --devices=LIST          comma-separated whitelist of devices\n"
           " -s, --syscalls=LIST         comma-separated whitelist of syscalls\n"
-          "     --syscalls-file=PATH    whitelist file containing one syscall name per line\n"
-          "     --devices=LIST          comma-separated whitelist of readable devices\n"
-          "\n"
-          "Devices are taken as `type:major:minor` where `type` is `c` (char) or\n"
-          "`b` (block) and `major` and `minor` are integers.\n",
+          "     --syscalls-file=PATH    whitelist file containing one syscall name per line\n",
           out);
 
     exit(out == stderr ? EXIT_FAILURE : EXIT_SUCCESS);
 }
 
-
-static void check(int rc) {
-    if (rc < 0) {
-        errx(1, "%s", strerror(-rc));
-    }
-}
 
 // Close any extra file descriptors. Only `stdin`, `stdout` and `stderr` are left open.
 static void close_file_descriptors() {
@@ -204,11 +181,11 @@ int main(int argc, char **argv) {
     close_file_descriptors();
 
     int epoll_fd;
-    const char *memory_limit = "128M";
+    unsigned memory_limit = 128;
     const char *username = "nobody";
     const char *hostname = "playpen";
-    char *syscalls = NULL;
     char *devices = NULL;
+    char *syscalls = NULL;
     const char *syscalls_file = NULL;
     int syscalls_from_file[500]; // upper bound on the number of syscalls
     int timeout = 0;
@@ -222,14 +199,14 @@ int main(int argc, char **argv) {
         { "hostname",      required_argument, 0, 'n' },
         { "timeout",       required_argument, 0, 't' },
         { "memory-limit",  required_argument, 0, 'm' },
+        { "devices",       required_argument, 0, 'd' },
         { "syscalls",      required_argument, 0, 's' },
         { "syscalls-file", required_argument, 0, 0x100 },
-        { "devices",       required_argument, 0, 0x101 },
         { 0, 0, 0, 0 }
     };
 
     while (true) {
-        int opt = getopt_long(argc, argv, "hvpu:r:n:t:m:s:", opts, NULL);
+        int opt = getopt_long(argc, argv, "hvpu:r:n:t:m:d:s:", opts, NULL);
         if (opt == -1)
             break;
 
@@ -253,16 +230,16 @@ int main(int argc, char **argv) {
             timeout = atoi(optarg);
             break;
         case 'm':
-            memory_limit = optarg;
+            memory_limit = atoi(optarg);
+            break;
+        case 'd':
+            devices = optarg;
             break;
         case 's':
             syscalls = optarg;
             break;
         case 0x100:
             syscalls_file = optarg;
-            break;
-        case 0x101:
-            devices = optarg;
             break;
         default:
             usage(stderr);
@@ -279,7 +256,8 @@ int main(int argc, char **argv) {
 
     if (syscalls_file) {
         char name[30]; // longest syscall name
-        FILE *file = fopenx(syscalls_file, "r");
+        FILE *file = fopen(syscalls_file, "r");
+        if (!file) err(EXIT_FAILURE, "failed to open syscalls file: %s", syscalls_file);
         size_t i = 0;
         while (fgets(name, sizeof name / sizeof name[0], file)) {
             char *pos;
@@ -329,22 +307,18 @@ int main(int argc, char **argv) {
         err(1, "pipe");
     }
 
-    // A pipe for checking if this process is dead from the child.
-    int pipe_parent_alive[2];
-    if (pipe2(pipe_parent_alive, O_CLOEXEC) < 0) {
+    // A pipe for signalling that the scope unit is set up.
+    int pipe_ready[2];
+    if (pipe2(pipe_ready, O_CLOEXEC) < 0) {
         err(1, "pipe");
     }
 
     epoll_watch(epoll_fd, pipe_out[0]);
     epoll_watch(epoll_fd, pipe_err[0]);
 
-    pid_t ppid = getpid(); // getppid() in the child won't work
-
-    if (unshare(CLONE_NEWIPC|CLONE_NEWNS|CLONE_NEWPID|CLONE_NEWUTS|CLONE_NEWNET) < 0) {
-        err(EXIT_FAILURE, "unshare");
-    }
-
-    pid_t pid = fork();
+    pid_t pid = syscall(__NR_clone,
+                        SIGCHLD|CLONE_NEWIPC|CLONE_NEWNS|CLONE_NEWPID|CLONE_NEWUTS|CLONE_NEWNET,
+                        NULL);
 
     if (pid == 0) {
         close(STDIN_FILENO);
@@ -356,25 +330,26 @@ int main(int argc, char **argv) {
         close(pipe_err[0]);
         close(pipe_err[1]);
 
-        init_cgroup(ppid, memory_limit, devices);
+        close(pipe_ready[1]);
 
         // Kill this process if the parent dies. This is not a replacement for killing the sandboxed
         // processes via a control group as it is not inherited by child processes, but is more
         // robust when the sandboxed process is not allowed to fork.
         prctl(PR_SET_PDEATHSIG, SIGKILL);
 
-        // Make sure the parent didn't die before calling `prctl`.
-        close(pipe_parent_alive[0]);
-        for (;;) {
-            if (write(pipe_parent_alive[1], &(uint8_t) { 0 }, 1) == -1) {
+        // Wait until the scope unit is set up before moving on. This also ensures that the parent
+        // didn't die before `prctl` was called.
+        do {
+            uint8_t ready;
+            if (read(pipe_ready[0], &ready, sizeof ready) == -1) {
                 if (errno == EINTR) {
                     continue;
                 } else {
-                    err(EXIT_FAILURE, "write");
+                    err(EXIT_FAILURE, "read");
                 }
             }
-            break;
-        }
+            close(pipe_ready[0]);
+        } while (false);
 
         if (sethostname(hostname, strlen(hostname)) < 0) {
             err(1, "sethostname");
@@ -466,10 +441,25 @@ int main(int argc, char **argv) {
             err(1, "execvpe");
         }
     } else if (pid < 0) {
-        err(1, "fork");
+        err(1, "clone");
     }
 
-    atexit(kill_group);
+    GDBusConnection *connection = get_system_bus();
+
+    char unit_name[100];
+    snprintf(unit_name, sizeof unit_name, "playpen-%u.scope", getpid());
+
+    start_scope_unit(connection, pid, memory_limit, devices, unit_name);
+
+    do {
+        if (write(pipe_ready[1], &(uint8_t) { 0 }, 1) == -1) {
+            if (errno == EINTR) {
+                continue;
+            } else {
+                err(EXIT_FAILURE, "write");
+            }
+        }
+    } while (false);
 
     if (timeout) {
         struct itimerspec spec = {};
@@ -496,7 +486,9 @@ int main(int argc, char **argv) {
             if (evt->events & EPOLLERR || evt->events & EPOLLHUP) {
                 close(evt->data.fd);
             } else if (evt->data.fd == timer_fd) {
-                errx(EXIT_FAILURE, "timeout triggered!");
+                warnx("timeout triggered!");
+                stop_scope_unit(connection, unit_name);
+                return EXIT_FAILURE;
             } else if (evt->data.fd == sig_fd) {
                 struct signalfd_siginfo si;
                 ssize_t bytes_r = read(sig_fd, &si, sizeof(si));

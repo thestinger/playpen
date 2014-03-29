@@ -13,3 +13,4 @@ children after an optional timeout.
 
 * Linux 3.8 or later
 * [libseccomp](http://sourceforge.net/projects/libseccomp/) 2.1.1 or later
+* systemd
