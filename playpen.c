@@ -59,7 +59,7 @@ static void wait_for_unit(GDBusConnection *connection, pid_t child_pid, const ch
     }
 }
 
-static void start_scope_unit(GDBusConnection *connection, pid_t child_pid, unsigned memory_limit,
+static void start_scope_unit(GDBusConnection *connection, pid_t child_pid, long memory_limit,
                              char *devices, const char *unit_name) {
     GVariantBuilder *pids = g_variant_builder_new(G_VARIANT_TYPE("au"));
     g_variant_builder_add(pids, "u", child_pid);
@@ -176,18 +176,28 @@ static void close_file_descriptors() {
      closedir(dir);
 }
 
+static long strtolx_positive(const char *s, const char *what) {
+    char *end;
+    errno = 0;
+    long result = strtol(s, &end, 10);
+    if (errno) errx(EXIT_FAILURE, "%s is too large", what);
+    if (*end != '\0' || result < 0)
+        errx(EXIT_FAILURE, "%s must be a positive integer", what);
+    return result;
+}
+
 int main(int argc, char **argv) {
     close_file_descriptors();
 
     int epoll_fd;
-    unsigned memory_limit = 128;
+    long memory_limit = 128;
     const char *username = "nobody";
     const char *hostname = "playpen";
     char *devices = NULL;
     char *syscalls = NULL;
     const char *syscalls_file = NULL;
     int syscalls_from_file[500]; // upper bound on the number of syscalls
-    int timeout = 0;
+    long timeout = 0;
     bool mount_proc = false;
 
     static const struct option opts[] = {
@@ -226,10 +236,10 @@ int main(int argc, char **argv) {
             hostname = optarg;
             break;
         case 't':
-            timeout = atoi(optarg);
+            timeout = strtolx_positive(optarg, "timeout");
             break;
         case 'm':
-            memory_limit = atoi(optarg);
+            memory_limit = strtolx_positive(optarg, "memory limit");
             break;
         case 'd':
             devices = optarg;
