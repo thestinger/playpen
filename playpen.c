@@ -49,7 +49,7 @@ static GDBusConnection *get_system_bus() {
     return connection;
 }
 
-static void wait_for_unit(GDBusConnection *connection, pid_t child_pid, const char *expected_name) {
+static void wait_for_unit(pid_t child_pid, const char *expected_name) {
     for (;;) {
         char *unit;
         check(sd_pid_get_unit(child_pid, &unit));
@@ -82,7 +82,7 @@ static void start_scope_unit(GDBusConnection *connection, pid_t child_pid, long 
                           g_variant_new("s", "Playpen application sandbox"));
     g_variant_builder_add(properties, "(sv)", "PIDs", g_variant_new("au", pids));
     g_variant_builder_add(properties, "(sv)", "MemoryLimit",
-                          g_variant_new("t", 1024ULL * 1024ULL * memory_limit));
+                          g_variant_new("t", 1024ULL * 1024ULL * (unsigned long long)memory_limit));
     g_variant_builder_add(properties, "(sv)", "DevicePolicy", g_variant_new("s", "strict"));
     g_variant_builder_add(properties, "(sv)", "DeviceAllow", g_variant_new("a(ss)", allowed));
 
@@ -98,7 +98,7 @@ static void start_scope_unit(GDBusConnection *connection, pid_t child_pid, long 
                                                   G_DBUS_CALL_FLAGS_NONE, -1, NULL, &error);
     if (error) errx(EXIT_FAILURE, "%s\n", error->message);
     g_variant_unref(reply);
-    wait_for_unit(connection, child_pid, unit_name);
+    wait_for_unit(child_pid, unit_name);
 }
 
 static void stop_scope_unit(GDBusConnection *connection, const char *unit_name) {
@@ -168,7 +168,7 @@ static void close_file_descriptors() {
      struct dirent *dp;
      while ((dp = readdir(dir)) != NULL) {
          char *end;
-         int fd = strtol(dp->d_name, &end, 10);
+         int fd = (int)strtol(dp->d_name, &end, 10);
          if (*end == '\0' && fd > 2 && fd != dirfd(dir)) {
              close(fd);
          }
@@ -222,7 +222,6 @@ int main(int argc, char **argv) {
         switch (opt) {
         case 'h':
             usage(stdout);
-            break;
         case 'v':
             printf("%s %s\n", program_invocation_short_name, VERSION);
             return 0;
@@ -252,7 +251,6 @@ int main(int argc, char **argv) {
             break;
         default:
             usage(stderr);
-            break;
         }
     }
 
@@ -325,9 +323,8 @@ int main(int argc, char **argv) {
     epoll_watch(epoll_fd, pipe_out[0]);
     epoll_watch(epoll_fd, pipe_err[0]);
 
-    pid_t pid = syscall(__NR_clone,
-                        SIGCHLD|CLONE_NEWIPC|CLONE_NEWNS|CLONE_NEWPID|CLONE_NEWUTS|CLONE_NEWNET,
-                        NULL);
+    unsigned long flags = SIGCHLD|CLONE_NEWIPC|CLONE_NEWNS|CLONE_NEWPID|CLONE_NEWUTS|CLONE_NEWNET;
+    pid_t pid = (pid_t)syscall(__NR_clone, flags, NULL);
 
     if (pid == 0) {
         close(STDIN_FILENO);
