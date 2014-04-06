@@ -189,16 +189,15 @@ static long strtolx_positive(const char *s, const char *what) {
 int main(int argc, char **argv) {
     close_file_descriptors();
 
-    int epoll_fd;
-    long memory_limit = 128;
+    bool mount_proc = false;
     const char *username = "nobody";
     const char *hostname = "playpen";
+    long timeout = 0;
+    long memory_limit = 128;
     char *devices = NULL;
     char *syscalls = NULL;
     const char *syscalls_file = NULL;
     int syscalls_from_file[500]; // upper bound on the number of syscalls
-    long timeout = 0;
-    bool mount_proc = false;
 
     static const struct option opts[] = {
         { "help",          no_argument,       0, 'h' },
@@ -275,7 +274,7 @@ int main(int argc, char **argv) {
         fclose(file);
     }
 
-    epoll_fd = epoll_create1(EPOLL_CLOEXEC);
+    int epoll_fd = epoll_create1(EPOLL_CLOEXEC);
     if (epoll_fd < 0) {
         err(1, "epoll");
     }
