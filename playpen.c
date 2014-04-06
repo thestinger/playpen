@@ -121,16 +121,19 @@ static void epoll_watch(int epoll_fd, int fd) {
         err(1, "epoll_ctl");
 }
 
+// This could often use `splice`, but it will not always work with `stdout` and `stderr`.
 static void copy_pipe_to(int in_fd, int out_fd) {
-    while (true) {
-        ssize_t bytes_s = splice(in_fd, NULL, out_fd, NULL, BUFSIZ,
-                                 SPLICE_F_MOVE | SPLICE_F_NONBLOCK);
-        if (bytes_s < 0) {
-            if (errno == EAGAIN)
-                break;
-            err(1, "splice");
+    ssize_t n;
+    do {
+        uint8_t buffer[BUFSIZ];
+        n = read(in_fd, buffer, sizeof buffer);
+        if (n == -1) {
+            if (errno == EAGAIN) return;
+            err(EXIT_FAILURE, "read");
         }
-    }
+        if (write(out_fd, buffer, (size_t)n) == -1)
+            err(EXIT_FAILURE, "write");
+    } while (n != 0);
 }
 
 static int get_syscall_nr(const char *name) {
@@ -184,6 +187,14 @@ static long strtolx_positive(const char *s, const char *what) {
     if (*end != '\0' || result < 0)
         errx(EXIT_FAILURE, "%s must be a positive integer", what);
     return result;
+}
+
+static void child_pipe(int pipefd[2]) {
+    if (pipe(pipefd) < 0) {
+        err(EXIT_FAILURE, "pipe");
+    }
+    int flags = fcntl(pipefd[0], F_GETFL, 0);
+    fcntl(pipefd[0], F_SETFL, flags | O_NONBLOCK);
 }
 
 int main(int argc, char **argv) {
@@ -305,13 +316,8 @@ int main(int argc, char **argv) {
 
     int pipe_out[2];
     int pipe_err[2];
-    if (pipe(pipe_out) < 0) {
-        err(1, "pipe");
-    }
-
-    if (pipe(pipe_err) < 0) {
-        err(1, "pipe");
-    }
+    child_pipe(pipe_out);
+    child_pipe(pipe_err);
 
     // A pipe for signalling that the scope unit is set up.
     int pipe_ready[2];
