@@ -350,17 +350,11 @@ int main(int argc, char **argv) {
 
         // Wait until the scope unit is set up before moving on. This also ensures that the parent
         // didn't die before `prctl` was called.
-        do {
-            uint8_t ready;
-            if (read(pipe_ready[0], &ready, sizeof ready) == -1) {
-                if (errno == EINTR) {
-                    continue;
-                } else {
-                    err(EXIT_FAILURE, "read");
-                }
-            }
-            close(pipe_ready[0]);
-        } while (false);
+        uint8_t ready;
+        if (read(pipe_ready[0], &ready, sizeof ready) == -1) {
+            err(EXIT_FAILURE, "read");
+        }
+        close(pipe_ready[0]);
 
         if (sethostname(hostname, strlen(hostname)) < 0) {
             err(1, "sethostname");
@@ -462,15 +456,9 @@ int main(int argc, char **argv) {
 
     start_scope_unit(connection, pid, memory_limit, devices, unit_name);
 
-    do {
-        if (write(pipe_ready[1], &(uint8_t) { 0 }, 1) == -1) {
-            if (errno == EINTR) {
-                continue;
-            } else {
-                err(EXIT_FAILURE, "write");
-            }
-        }
-    } while (false);
+    if (write(pipe_ready[1], &(uint8_t) { 0 }, 1) == -1) {
+        err(EXIT_FAILURE, "write");
+    }
 
     if (timeout) {
         struct itimerspec spec = {};
