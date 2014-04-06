@@ -162,21 +162,22 @@ __attribute__((noreturn)) static void usage(FILE *out) {
     exit(out == stderr ? EXIT_FAILURE : EXIT_SUCCESS);
 }
 
-// Close any extra file descriptors. Only `stdin`, `stdout` and `stderr` are left open.
-static void close_file_descriptors() {
-     DIR *dir = opendir("/proc/self/fd");
-     if (!dir) {
-         err(EXIT_FAILURE, "opendir");
-     }
-     struct dirent *dp;
-     while ((dp = readdir(dir)) != NULL) {
-         char *end;
-         int fd = (int)strtol(dp->d_name, &end, 10);
-         if (*end == '\0' && fd > 2 && fd != dirfd(dir)) {
-             close(fd);
-         }
-     }
-     closedir(dir);
+static void add_fd_flags(int fd, int flags) {
+    fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | flags);
+}
+
+// Mark any extra file descriptors `CLOEXEC`. Only `stdin`, `stdout` and `stderr` are left open.
+static void prevent_leaked_file_descriptors() {
+    DIR *dir = opendir("/proc/self/fd");
+    if (!dir) err(EXIT_FAILURE, "opendir");
+    struct dirent *dp;
+    while ((dp = readdir(dir))) {
+        char *end;
+        int fd = (int)strtol(dp->d_name, &end, 10);
+        if (*end == '\0' && fd > 2 && fd != dirfd(dir))
+            add_fd_flags(fd, O_CLOEXEC);
+    }
+    closedir(dir);
 }
 
 static long strtolx_positive(const char *s, const char *what) {
@@ -193,12 +194,11 @@ static void child_pipe(int pipefd[2]) {
     if (pipe(pipefd) < 0) {
         err(EXIT_FAILURE, "pipe");
     }
-    int flags = fcntl(pipefd[0], F_GETFL, 0);
-    fcntl(pipefd[0], F_SETFL, flags | O_NONBLOCK);
+    add_fd_flags(pipefd[0], O_NONBLOCK);
 }
 
 int main(int argc, char **argv) {
-    close_file_descriptors();
+    prevent_leaked_file_descriptors();
 
     bool mount_proc = false;
     const char *username = "nobody";
