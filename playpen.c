@@ -202,6 +202,8 @@ static void child_pipe(int pipefd[2]) {
 }
 
 int main(int argc, char **argv) {
+    g_log_set_always_fatal(G_LOG_LEVEL_WARNING | G_LOG_LEVEL_CRITICAL);
+
     prevent_leaked_file_descriptors();
 
     bool mount_proc = false;
