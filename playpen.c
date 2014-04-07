@@ -162,8 +162,11 @@ __attribute__((noreturn)) static void usage(FILE *out) {
     exit(out == stderr ? EXIT_FAILURE : EXIT_SUCCESS);
 }
 
-static void add_fd_flags(int fd, int flags) {
-    fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | flags);
+static void set_non_blocking(int fd) {
+    int flags = fcntl(fd, F_GETFL, 0);
+    if (flags == -1) err(EXIT_FAILURE, "fcntl");
+    if (fcntl(fd, F_SETFL, flags | O_NONBLOCK) == -1)
+        err(EXIT_FAILURE, "fcntl");
 }
 
 // Mark any extra file descriptors `CLOEXEC`. Only `stdin`, `stdout` and `stderr` are left open.
@@ -174,8 +177,9 @@ static void prevent_leaked_file_descriptors() {
     while ((dp = readdir(dir))) {
         char *end;
         int fd = (int)strtol(dp->d_name, &end, 10);
-        if (*end == '\0' && fd > 2 && fd != dirfd(dir))
-            add_fd_flags(fd, O_CLOEXEC);
+        if (*end == '\0' && fd > 2 && fd != dirfd(dir)) {
+            if (ioctl(fd, FIOCLEX) == -1) err(EXIT_FAILURE, "ioctl");
+        }
     }
     closedir(dir);
 }
@@ -194,7 +198,7 @@ static void child_pipe(int pipefd[2]) {
     if (pipe(pipefd) < 0) {
         err(EXIT_FAILURE, "pipe");
     }
-    add_fd_flags(pipefd[0], O_NONBLOCK);
+    set_non_blocking(pipefd[0]);
 }
 
 int main(int argc, char **argv) {
