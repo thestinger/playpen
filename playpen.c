@@ -45,7 +45,7 @@ static const char *const manager_interface = "org.freedesktop.systemd1.Manager";
 static GDBusConnection *get_system_bus() {
     GError *error = NULL;
     GDBusConnection *connection = g_bus_get_sync(G_BUS_TYPE_SYSTEM, NULL, &error);
-    if (error) errx(EXIT_FAILURE, "%s\n", error->message);
+    if (error) errx(EXIT_FAILURE, "%s", error->message);
     return connection;
 }
 
@@ -96,7 +96,7 @@ static void start_scope_unit(GDBusConnection *connection, pid_t child_pid, long 
                                                                 NULL),
                                                   G_VARIANT_TYPE("(o)"),
                                                   G_DBUS_CALL_FLAGS_NONE, -1, NULL, &error);
-    if (error) errx(EXIT_FAILURE, "%s\n", error->message);
+    if (error) errx(EXIT_FAILURE, "%s", error->message);
     g_variant_unref(reply);
     wait_for_unit(child_pid, unit_name);
 }
@@ -108,7 +108,7 @@ static void stop_scope_unit(GDBusConnection *connection, const char *unit_name) 
                                                   g_variant_new("(ss)", unit_name, "fail"),
                                                   G_VARIANT_TYPE("(o)"),
                                                   G_DBUS_CALL_FLAGS_NONE, -1, NULL, &error);
-    if (error) errx(EXIT_FAILURE, "%s\n", error->message);
+    if (error) errx(EXIT_FAILURE, "%s", error->message);
     g_variant_unref(reply);
 }
 
