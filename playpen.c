@@ -113,10 +113,7 @@ static void stop_scope_unit(GDBusConnection *connection, const char *unit_name) 
 }
 
 static void epoll_watch(int epoll_fd, int fd) {
-    struct epoll_event event = {};
-    event.data.fd = fd;
-    event.events = EPOLLIN | EPOLLET;
-
+    struct epoll_event event = { .data.fd = fd, .events = EPOLLIN | EPOLLET };
     if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, fd, &event) < 0)
         err(1, "epoll_ctl");
 }
@@ -467,9 +464,7 @@ int main(int argc, char **argv) {
     }
 
     if (timeout) {
-        struct itimerspec spec = {};
-        spec.it_value.tv_sec = timeout;
-
+        struct itimerspec spec = { .it_value = { .tv_sec = timeout } };
         if (timerfd_settime(timer_fd, 0, &spec, NULL) < 0)
             err(EXIT_FAILURE, "timerfd_settime");
     }
