@@ -372,12 +372,8 @@ int main(int argc, char **argv) {
         // re-mount as read-only
         mountx(root, root, "bind", MS_BIND|MS_REMOUNT|MS_RDONLY|MS_REC, NULL);
 
-        if (chroot(root) < 0) {
-            err(1, "chroot");
-        }
-
-        if (chdir("/") < 0) {
-            err(1, "chdir");
+        if (chroot(root) < 0 || chdir("/") < 0) {
+            err(1, "entering chroot `%s` failed", root);
         }
 
         if (mount_proc) {
