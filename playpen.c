@@ -147,6 +147,7 @@ __attribute__((noreturn)) static void usage(FILE *out) {
           " -h, --help                  display this help\n"
           " -v, --version               display version\n"
           " -p, --mount-proc            mount /proc in the container\n"
+          "     --mount-dev             mount /dev as devtmpfs in the container\n"
           " -u, --user=USER             the user to run the program as\n"
           " -n, --hostname=NAME         the hostname to set the container to\n"
           " -t, --timeout=INTEGER       how long the container is allowed to run\n"
@@ -204,6 +205,7 @@ int main(int argc, char **argv) {
     prevent_leaked_file_descriptors();
 
     bool mount_proc = false;
+    bool mount_dev = false;
     const char *username = "nobody";
     const char *hostname = "playpen";
     long timeout = 0;
@@ -217,13 +219,14 @@ int main(int argc, char **argv) {
         { "help",          no_argument,       0, 'h' },
         { "version",       no_argument,       0, 'v' },
         { "mount-proc",    no_argument,       0, 'p' },
+        { "mount-dev",     no_argument,       0, 0x100 },
         { "user",          required_argument, 0, 'u' },
         { "hostname",      required_argument, 0, 'n' },
         { "timeout",       required_argument, 0, 't' },
         { "memory-limit",  required_argument, 0, 'm' },
         { "devices",       required_argument, 0, 'd' },
         { "syscalls",      required_argument, 0, 's' },
-        { "syscalls-file", required_argument, 0, 0x100 },
+        { "syscalls-file", required_argument, 0, 0x101 },
         { 0, 0, 0, 0 }
     };
 
@@ -240,6 +243,9 @@ int main(int argc, char **argv) {
             return 0;
         case 'p':
             mount_proc = true;
+            break;
+        case 0x100:
+            mount_dev = true;
             break;
         case 'u':
             username = optarg;
@@ -259,7 +265,7 @@ int main(int argc, char **argv) {
         case 's':
             syscalls = optarg;
             break;
-        case 0x100:
+        case 0x101:
             syscalls_file = optarg;
             break;
         default:
@@ -378,6 +384,9 @@ int main(int argc, char **argv) {
 
         if (mount_proc) {
             mountx(NULL, "/proc", "proc", MS_NOSUID|MS_NOEXEC|MS_NODEV, NULL);
+        }
+        if (mount_dev) {
+            mountx(NULL, "/dev", "devtmpfs", MS_NOSUID|MS_NOEXEC, NULL);
         }
         mountx(NULL, "/dev/shm", "tmpfs", MS_NOSUID|MS_NODEV, NULL);
         mountx(NULL, "/tmp", "tmpfs", MS_NOSUID|MS_NODEV, NULL);
