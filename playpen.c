@@ -141,7 +141,7 @@ static int get_syscall_nr(const char *name) {
     return result;
 }
 
-__attribute__((noreturn)) static void usage(FILE *out) {
+_Noreturn static void usage(FILE *out) {
     fprintf(out, "usage: %s [options] [root] [command ...]\n", program_invocation_short_name);
     fputs("Options:\n"
           " -h, --help                  display this help\n"
