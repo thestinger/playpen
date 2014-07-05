@@ -1,6 +1,6 @@
 PREFIX = /usr/local
 
-CC = clang
+CC ?= clang
 CFLAGS += -std=c11 -O2 \
 	  -fPIE -fstack-protector-strong \
 	  -DVERSION=\"$(shell git describe)\" $(shell pkg-config --cflags gio-2.0)
