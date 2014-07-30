@@ -193,11 +193,10 @@ static long strtolx_positive(const char *s, const char *what) {
     return result;
 }
 
-static void child_pipe(int pipefd[2]) {
+static void pipex(int pipefd[2]) {
     if (pipe(pipefd) < 0) {
         err(EXIT_FAILURE, "pipe");
     }
-    set_non_blocking(pipefd[0]);
 }
 
 int main(int argc, char **argv) {
@@ -308,6 +307,8 @@ int main(int argc, char **argv) {
         err(EXIT_FAILURE, "sigprocmask");
     }
 
+    epoll_watch(epoll_fd, STDIN_FILENO);
+
     int sig_fd = signalfd(-1, &mask, SFD_CLOEXEC);
     if (sig_fd < 0) {
         err(EXIT_FAILURE, "signalfd");
@@ -324,10 +325,14 @@ int main(int argc, char **argv) {
         epoll_watch(epoll_fd, timer_fd);
     }
 
+    int pipe_in[2];
     int pipe_out[2];
     int pipe_err[2];
-    child_pipe(pipe_out);
-    child_pipe(pipe_err);
+    pipex(pipe_in);
+    pipex(pipe_out);
+    set_non_blocking(pipe_out[0]);
+    pipex(pipe_err);
+    set_non_blocking(pipe_err[0]);
 
     // A pipe for signalling that the scope unit is set up.
     int pipe_ready[2];
@@ -342,12 +347,15 @@ int main(int argc, char **argv) {
     pid_t pid = (pid_t)syscall(__NR_clone, flags, NULL);
 
     if (pid == 0) {
-        close(STDIN_FILENO);
-        dup2(pipe_out[1], STDOUT_FILENO);
-        dup2(pipe_err[1], STDERR_FILENO);
+        dup2(pipe_in[0], STDIN_FILENO);
+        close(pipe_in[0]);
+        close(pipe_in[1]);
 
+        dup2(pipe_out[1], STDOUT_FILENO);
         close(pipe_out[0]);
         close(pipe_out[1]);
+
+        dup2(pipe_err[1], STDERR_FILENO);
         close(pipe_err[0]);
         close(pipe_err[1]);
 
@@ -527,6 +535,18 @@ int main(int argc, char **argv) {
                 copy_pipe_to(pipe_out[0], STDOUT_FILENO);
             } else if (evt->data.fd == pipe_err[0]) {
                 copy_pipe_to(pipe_err[0], STDERR_FILENO);
+            } else if (evt->data.fd == STDIN_FILENO) {
+                uint8_t buffer[BUFSIZ];
+                ssize_t n = read(STDIN_FILENO, buffer, sizeof buffer);
+                if (n == -1) {
+                    err(EXIT_FAILURE, "read");
+                }
+                if (n == 0) {
+                    close(STDIN_FILENO);
+                    close(pipe_in[1]);
+                } else if (write(pipe_in[1], buffer, (size_t)n) == -1) {
+                    err(EXIT_FAILURE, "write");
+                }
             }
         }
     }
