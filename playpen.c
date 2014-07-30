@@ -114,7 +114,7 @@ static void stop_scope_unit(GDBusConnection *connection, const char *unit_name) 
 }
 
 static void epoll_watch(int epoll_fd, int fd) {
-    struct epoll_event event = { .data.fd = fd, .events = EPOLLIN | EPOLLET };
+    struct epoll_event event = { .data.fd = fd, .events = EPOLLIN };
     if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, fd, &event) < 0)
         err(EXIT_FAILURE, "epoll_ctl");
 }
