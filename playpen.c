@@ -5,10 +5,11 @@
 #include <stdio.h>
 #include <string.h>
 
-#include <getopt.h>
 #include <dirent.h>
 #include <err.h>
 #include <errno.h>
+#include <getopt.h>
+#include <grp.h>
 #include <linux/limits.h>
 #include <pwd.h>
 #include <fcntl.h>
@@ -413,6 +414,9 @@ int main(int argc, char **argv) {
             err(1, "setsid");
         }
 
+        if (initgroups(username, pw->pw_gid) < 0) {
+            err(EXIT_FAILURE, "initgroups");
+        }
         if (setresgid(pw->pw_gid, pw->pw_gid, pw->pw_gid) < 0) {
             err(1, "setresgid");
         }
