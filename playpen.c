@@ -30,13 +30,13 @@
 #include <seccomp.h>
 
 static void check(int rc) {
-    if (rc < 0) errx(1, "%s", strerror(-rc));
+    if (rc < 0) errx(EXIT_FAILURE, "%s", strerror(-rc));
 }
 
 static void mountx(const char *source, const char *target, const char *filesystemtype,
                    unsigned long mountflags, const void *data) {
     if (mount(source, target, filesystemtype, mountflags, data) < 0)
-        err(1, "mounting %s failed", target);
+        err(EXIT_FAILURE, "mounting %s failed", target);
 }
 
 static const char *const systemd_bus_name = "org.freedesktop.systemd1";
@@ -116,7 +116,7 @@ static void stop_scope_unit(GDBusConnection *connection, const char *unit_name) 
 static void epoll_watch(int epoll_fd, int fd) {
     struct epoll_event event = { .data.fd = fd, .events = EPOLLIN | EPOLLET };
     if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, fd, &event) < 0)
-        err(1, "epoll_ctl");
+        err(EXIT_FAILURE, "epoll_ctl");
 }
 
 // This could often use `splice`, but it will not always work with `stdout` and `stderr`.
@@ -297,7 +297,7 @@ int main(int argc, char **argv) {
 
     int epoll_fd = epoll_create1(EPOLL_CLOEXEC);
     if (epoll_fd < 0) {
-        err(1, "epoll");
+        err(EXIT_FAILURE, "epoll");
     }
 
     sigset_t mask;
@@ -305,12 +305,12 @@ int main(int argc, char **argv) {
     sigaddset(&mask, SIGCHLD);
 
     if (sigprocmask(SIG_BLOCK, &mask, NULL) < 0) {
-        err(1, "sigprocmask");
+        err(EXIT_FAILURE, "sigprocmask");
     }
 
     int sig_fd = signalfd(-1, &mask, SFD_CLOEXEC);
     if (sig_fd < 0) {
-        err(1, "signalfd");
+        err(EXIT_FAILURE, "signalfd");
     }
 
     epoll_watch(epoll_fd, sig_fd);
@@ -332,7 +332,7 @@ int main(int argc, char **argv) {
     // A pipe for signalling that the scope unit is set up.
     int pipe_ready[2];
     if (pipe2(pipe_ready, O_CLOEXEC) < 0) {
-        err(1, "pipe");
+        err(EXIT_FAILURE, "pipe");
     }
 
     epoll_watch(epoll_fd, pipe_out[0]);
@@ -367,7 +367,7 @@ int main(int argc, char **argv) {
         close(pipe_ready[0]);
 
         if (sethostname(hostname, strlen(hostname)) < 0) {
-            err(1, "sethostname");
+            err(EXIT_FAILURE, "sethostname");
         }
 
         // avoid propagating mounts to or from the real root
@@ -380,7 +380,7 @@ int main(int argc, char **argv) {
         mountx(root, root, "bind", MS_BIND|MS_REMOUNT|MS_RDONLY|MS_REC, NULL);
 
         if (chroot(root) < 0 || chdir("/") < 0) {
-            err(1, "entering chroot `%s` failed", root);
+            err(EXIT_FAILURE, "entering chroot `%s` failed", root);
         }
 
         if (mount_proc) {
@@ -396,9 +396,9 @@ int main(int argc, char **argv) {
         struct passwd *pw = getpwnam(username);
         if (!pw) {
             if (errno) {
-                err(1, "getpwnam");
+                err(EXIT_FAILURE, "getpwnam");
             } else {
-                errx(1, "no passwd entry for username %s", username);
+                errx(EXIT_FAILURE, "no passwd entry for username %s", username);
             }
         }
 
@@ -406,22 +406,22 @@ int main(int argc, char **argv) {
 
         // switch to the user's home directory as a login shell would
         if (chdir(pw->pw_dir)) {
-            err(1, "chdir");
+            err(EXIT_FAILURE, "chdir");
         }
 
         // create a new session
         if (setsid() < 0) {
-            err(1, "setsid");
+            err(EXIT_FAILURE, "setsid");
         }
 
         if (initgroups(username, pw->pw_gid) < 0) {
             err(EXIT_FAILURE, "initgroups");
         }
         if (setresgid(pw->pw_gid, pw->pw_gid, pw->pw_gid) < 0) {
-            err(1, "setresgid");
+            err(EXIT_FAILURE, "setresgid");
         }
         if (setresuid(pw->pw_uid, pw->pw_uid, pw->pw_uid) < 0) {
-            err(1, "setresuid");
+            err(EXIT_FAILURE, "setresuid");
         }
 
         char path[] = "PATH=/usr/local/bin:/usr/bin:/bin";
@@ -429,7 +429,7 @@ int main(int argc, char **argv) {
         if ((asprintf(env + 1, "HOME=%s", pw->pw_dir) < 0 ||
              asprintf(env + 2, "USER=%s", username) < 0 ||
              asprintf(env + 3, "LOGNAME=%s", username) < 0)) {
-            errx(1, "asprintf");
+            errx(EXIT_FAILURE, "asprintf");
         }
 
         scmp_filter_ctx ctx = seccomp_init(SCMP_ACT_KILL);
@@ -455,10 +455,10 @@ int main(int argc, char **argv) {
         check(seccomp_load(ctx));
 
         if (execvpe(argv[optind], argv + optind, env) < 0) {
-            err(1, "execvpe");
+            err(EXIT_FAILURE, "execvpe");
         }
     } else if (pid < 0) {
-        err(1, "clone");
+        err(EXIT_FAILURE, "clone");
     }
 
     GDBusConnection *connection = get_system_bus();
@@ -486,7 +486,7 @@ int main(int argc, char **argv) {
         if (n < 0) {
             if (errno == EINTR)
                 continue;
-            err(1, "epoll_wait");
+            err(EXIT_FAILURE, "epoll_wait");
         }
 
         for (i = 0; i < n; ++i) {
@@ -503,7 +503,7 @@ int main(int argc, char **argv) {
                 ssize_t bytes_r = read(sig_fd, &si, sizeof(si));
 
                 if (bytes_r < 0) {
-                    err(1, "read");
+                    err(EXIT_FAILURE, "read");
                 } else if (bytes_r != sizeof(si)) {
                     errx(EXIT_FAILURE, "read the wrong amount of bytes");
                 } else if (si.ssi_signo != SIGCHLD) {
