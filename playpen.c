@@ -230,7 +230,7 @@ int main(int argc, char **argv) {
         { 0, 0, 0, 0 }
     };
 
-    while (true) {
+    for (;;) {
         int opt = getopt_long(argc, argv, "hvpu:r:n:t:m:d:s:", opts, NULL);
         if (opt == -1)
             break;
@@ -486,7 +486,7 @@ int main(int argc, char **argv) {
 
     struct epoll_event events[4];
 
-    while (true) {
+    for (;;) {
         int n_event = epoll_wait(epoll_fd, events, 4, -1);
 
         if (n_event < 0) {
