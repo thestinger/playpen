@@ -487,15 +487,15 @@ int main(int argc, char **argv) {
     struct epoll_event events[4];
 
     while (true) {
-        int i, n = epoll_wait(epoll_fd, events, 4, -1);
+        int n_event = epoll_wait(epoll_fd, events, 4, -1);
 
-        if (n < 0) {
+        if (n_event < 0) {
             if (errno == EINTR)
                 continue;
             err(EXIT_FAILURE, "epoll_wait");
         }
 
-        for (i = 0; i < n; ++i) {
+        for (int i = 0; i < n_event; ++i) {
             struct epoll_event *evt = &events[i];
 
             if (evt->events & EPOLLERR) {
