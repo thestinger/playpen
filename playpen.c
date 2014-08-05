@@ -360,7 +360,7 @@ int main(int argc, char **argv) {
         // Kill this process if the parent dies. This is not a replacement for killing the sandboxed
         // processes via a control group as it is not inherited by child processes, but is more
         // robust when the sandboxed process is not allowed to fork.
-        prctl(PR_SET_PDEATHSIG, SIGKILL);
+        check_posix(prctl(PR_SET_PDEATHSIG, SIGKILL), "prctl");
 
         // Wait until the scope unit is set up before moving on. This also ensures that the parent
         // didn't die before `prctl` was called.
