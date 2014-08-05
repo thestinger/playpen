@@ -41,7 +41,7 @@ __attribute__((format(printf, 2, 3))) static void check_posix(intmax_t rc, const
 static void mountx(const char *source, const char *target, const char *filesystemtype,
                    unsigned long mountflags, const void *data) {
     check_posix(mount(source, target, filesystemtype, mountflags, data),
-                "mounting %s failed", target);
+                "mounting %s as %s (%s) failed", source, target, filesystemtype);
 }
 
 static const char *const systemd_bus_name = "org.freedesktop.systemd1";
