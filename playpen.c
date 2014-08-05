@@ -379,7 +379,14 @@ int main(int argc, char **argv) {
         // re-mount as read-only
         mountx(root, root, "bind", MS_BIND|MS_REMOUNT|MS_RDONLY|MS_REC, NULL);
 
-        check_posix(chroot(root), "chroot into `%s` failed", root);
+        // preserve a reference to the target directory
+        check_posix(chdir(root), "chdir");
+
+        // make the working directory into the root of the mount namespace
+        mountx(".", "/", NULL, MS_MOVE, NULL);
+
+        // chroot into the root of the mount namespace
+        check_posix(chroot("."), "chroot into `%s` failed", root);
         check_posix(chdir("/"), "entering chroot `%s` failed", root);
 
         if (mount_proc) {
