@@ -301,8 +301,6 @@ int main(int argc, char **argv) {
 
     check_posix(sigprocmask(SIG_BLOCK, &mask, NULL), "sigprocmask");
 
-    epoll_watch(epoll_fd, STDIN_FILENO);
-
     int sig_fd = signalfd(-1, &mask, SFD_CLOEXEC);
     check_posix(sig_fd, "signalfd");
 
@@ -319,6 +317,7 @@ int main(int argc, char **argv) {
     int pipe_out[2];
     int pipe_err[2];
     check_posix(pipe(pipe_in), "pipe");
+    set_non_blocking(pipe_in[1]);
     check_posix(pipe(pipe_out), "pipe");
     set_non_blocking(pipe_out[0]);
     check_posix(pipe(pipe_err), "pipe");
@@ -328,8 +327,12 @@ int main(int argc, char **argv) {
     int pipe_ready[2];
     check_posix(pipe2(pipe_ready, O_CLOEXEC), "pipe2");
 
+    epoll_watch(epoll_fd, STDIN_FILENO);
     epoll_watch(epoll_fd, pipe_out[0]);
     epoll_watch(epoll_fd, pipe_err[0]);
+
+    struct epoll_event event = { .data.fd = pipe_in[1], .events = EPOLLET | EPOLLOUT };
+    check_posix(epoll_ctl(epoll_fd, EPOLL_CTL_ADD, pipe_in[1], &event), "epoll_ctl");
 
     unsigned long flags = SIGCHLD|CLONE_NEWIPC|CLONE_NEWNS|CLONE_NEWPID|CLONE_NEWUTS|CLONE_NEWNET;
     pid_t pid = (pid_t)syscall(__NR_clone, flags, NULL);
@@ -452,6 +455,9 @@ int main(int argc, char **argv) {
 
     struct epoll_event events[4];
 
+    uint8_t stdin_buffer[PIPE_BUF];
+    ssize_t stdin_bytes_read = 0;
+
     for (;;) {
         int n_event = epoll_wait(epoll_fd, events, 4, -1);
 
@@ -505,17 +511,37 @@ int main(int argc, char **argv) {
                 } else if (evt->data.fd == pipe_err[0]) {
                     copy_pipe_to(pipe_err[0], STDERR_FILENO);
                 } else if (evt->data.fd == STDIN_FILENO) {
-                    uint8_t buffer[BUFSIZ];
-                    ssize_t n = read(STDIN_FILENO, buffer, sizeof buffer);
-                    check_posix(n, "read");
-                    if (n == 0) {
+                    stdin_bytes_read = read(STDIN_FILENO, stdin_buffer, sizeof stdin_buffer);
+                    check_posix(stdin_bytes_read, "read");
+                    if (stdin_bytes_read == 0) {
                         epoll_ctl(epoll_fd, EPOLL_CTL_DEL, STDIN_FILENO, NULL);
                         close(STDIN_FILENO);
                         close(pipe_in[1]);
-                    } else if (write(pipe_in[1], buffer, (size_t)n) == -1) {
+                        continue;
+                    }
+                    ssize_t bytes_written = write(pipe_in[1], stdin_buffer, (size_t)stdin_bytes_read);
+                    if (bytes_written == -1) {
+                        if (errno == EAGAIN) {
+                            epoll_ctl(epoll_fd, EPOLL_CTL_DEL, STDIN_FILENO, NULL);
+                            continue;
+                        }
                         err(EXIT_FAILURE, "write");
                     }
+                    stdin_bytes_read = 0;
                 }
+            }
+
+            if (evt->events & EPOLLOUT && evt->data.fd == pipe_in[1]) {
+                if (stdin_bytes_read == 0) continue;
+                ssize_t bytes_written = write(pipe_in[1], stdin_buffer, (size_t)stdin_bytes_read);
+                if (bytes_written == -1) {
+                    if (errno == EAGAIN) {
+                        continue;
+                    }
+                    err(EXIT_FAILURE, "write");
+                }
+                epoll_watch(epoll_fd, STDIN_FILENO);
+                stdin_bytes_read = 0;
             }
 
             if (evt->events & EPOLLHUP) {
