@@ -8,26 +8,26 @@
 #include <dirent.h>
 #include <err.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <getopt.h>
 #include <grp.h>
 #include <linux/limits.h>
 #include <pwd.h>
-#include <fcntl.h>
 #include <unistd.h>
 #include <sched.h>
 #include <signal.h>
+#include <sys/epoll.h>
 #include <sys/mount.h>
 #include <sys/prctl.h>
 #include <sys/resource.h>
+#include <sys/signalfd.h>
 #include <sys/stat.h>
 #include <sys/types.h>
-#include <sys/epoll.h>
-#include <sys/signalfd.h>
 #include <sys/timerfd.h>
 
-#include <systemd/sd-login.h>
 #include <gio/gio.h>
 #include <seccomp.h>
+#include <systemd/sd-login.h>
 
 static void check(int rc) {
     if (rc < 0) errx(EXIT_FAILURE, "%s", strerror(-rc));
