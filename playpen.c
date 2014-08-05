@@ -498,55 +498,69 @@ int main(int argc, char **argv) {
         for (i = 0; i < n; ++i) {
             struct epoll_event *evt = &events[i];
 
-            if (evt->events & EPOLLERR || evt->events & EPOLLHUP) {
+            if (evt->events & EPOLLERR) {
                 close(evt->data.fd);
-            } else if (evt->data.fd == timer_fd) {
-                warnx("timeout triggered!");
-                stop_scope_unit(connection, unit_name);
-                return EXIT_FAILURE;
-            } else if (evt->data.fd == sig_fd) {
-                struct signalfd_siginfo si;
-                ssize_t bytes_r = read(sig_fd, &si, sizeof(si));
+                continue;
+            }
 
-                if (bytes_r < 0) {
-                    err(EXIT_FAILURE, "read");
-                } else if (bytes_r != sizeof(si)) {
-                    errx(EXIT_FAILURE, "read the wrong amount of bytes");
-                } else if (si.ssi_signo != SIGCHLD) {
-                    errx(EXIT_FAILURE, "got an unexpected signal");
-                }
+            if (evt->events & EPOLLIN) {
+                if (evt->data.fd == timer_fd) {
+                    warnx("timeout triggered!");
+                    stop_scope_unit(connection, unit_name);
+                    return EXIT_FAILURE;
+                } else if (evt->data.fd == sig_fd) {
+                    struct signalfd_siginfo si;
+                    ssize_t bytes_r = read(sig_fd, &si, sizeof(si));
 
-                switch (si.ssi_code) {
-                case CLD_EXITED:
-                    if (si.ssi_status) {
-                        warnx("application terminated with error code %d", si.ssi_status);
+                    if (bytes_r < 0) {
+                        err(EXIT_FAILURE, "read");
+                    } else if (bytes_r != sizeof(si)) {
+                        errx(EXIT_FAILURE, "read the wrong amount of bytes");
+                    } else if (si.ssi_signo != SIGCHLD) {
+                        errx(EXIT_FAILURE, "got an unexpected signal");
                     }
-                    return si.ssi_status;
-                case CLD_KILLED:
-                case CLD_DUMPED:
-                    errx(EXIT_FAILURE, "application terminated abnormally with signal %d (%s)",
-                         si.ssi_status, strsignal(si.ssi_status));
-                case CLD_TRAPPED:
-                case CLD_STOPPED:
-                default:
-                    break;
+
+                    switch (si.ssi_code) {
+                    case CLD_EXITED:
+                        if (si.ssi_status) {
+                            warnx("application terminated with error code %d", si.ssi_status);
+                        }
+                        return si.ssi_status;
+                    case CLD_KILLED:
+                    case CLD_DUMPED:
+                        errx(EXIT_FAILURE, "application terminated abnormally with signal %d (%s)",
+                             si.ssi_status, strsignal(si.ssi_status));
+                    case CLD_TRAPPED:
+                    case CLD_STOPPED:
+                    default:
+                        break;
+                    }
+                } else if (evt->data.fd == pipe_out[0]) {
+                    copy_pipe_to(pipe_out[0], STDOUT_FILENO);
+                } else if (evt->data.fd == pipe_err[0]) {
+                    copy_pipe_to(pipe_err[0], STDERR_FILENO);
+                } else if (evt->data.fd == STDIN_FILENO) {
+                    uint8_t buffer[BUFSIZ];
+                    ssize_t n = read(STDIN_FILENO, buffer, sizeof buffer);
+                    if (n == -1) {
+                        err(EXIT_FAILURE, "read");
+                    }
+                    if (n == 0) {
+                        epoll_ctl(epoll_fd, EPOLL_CTL_DEL, STDIN_FILENO, NULL);
+                        close(STDIN_FILENO);
+                        close(pipe_in[1]);
+                    } else if (write(pipe_in[1], buffer, (size_t)n) == -1) {
+                        err(EXIT_FAILURE, "write");
+                    }
                 }
-            } else if (evt->data.fd == pipe_out[0]) {
-                copy_pipe_to(pipe_out[0], STDOUT_FILENO);
-            } else if (evt->data.fd == pipe_err[0]) {
-                copy_pipe_to(pipe_err[0], STDERR_FILENO);
-            } else if (evt->data.fd == STDIN_FILENO) {
-                uint8_t buffer[BUFSIZ];
-                ssize_t n = read(STDIN_FILENO, buffer, sizeof buffer);
-                if (n == -1) {
-                    err(EXIT_FAILURE, "read");
-                }
-                if (n == 0) {
-                    close(STDIN_FILENO);
+            }
+
+            if (evt->events & EPOLLHUP) {
+                if (evt->data.fd == STDIN_FILENO) {
                     close(pipe_in[1]);
-                } else if (write(pipe_in[1], buffer, (size_t)n) == -1) {
-                    err(EXIT_FAILURE, "write");
+                    epoll_ctl(epoll_fd, EPOLL_CTL_DEL, STDIN_FILENO, NULL);
                 }
+                close(evt->data.fd);
             }
         }
     }
