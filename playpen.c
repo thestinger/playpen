@@ -520,7 +520,8 @@ int main(int argc, char **argv) {
                     stdin_bytes_read = read(STDIN_FILENO, stdin_buffer, sizeof stdin_buffer);
                     check_posix(stdin_bytes_read, "read");
                     if (stdin_bytes_read == 0) {
-                        epoll_ctl(epoll_fd, EPOLL_CTL_DEL, STDIN_FILENO, NULL);
+                        check_posix(epoll_ctl(epoll_fd, EPOLL_CTL_DEL, STDIN_FILENO, NULL),
+                                    "epoll_ctl");
                         close(STDIN_FILENO);
                         close(pipe_in[1]);
                         continue;
@@ -528,7 +529,8 @@ int main(int argc, char **argv) {
                     ssize_t bytes_written = write(pipe_in[1], stdin_buffer, (size_t)stdin_bytes_read);
                     if (bytes_written == -1) {
                         if (errno == EAGAIN) {
-                            epoll_ctl(epoll_fd, EPOLL_CTL_DEL, STDIN_FILENO, NULL);
+                            check_posix(epoll_ctl(epoll_fd, EPOLL_CTL_DEL, STDIN_FILENO, NULL),
+                                        "epoll_ctl");
                             continue;
                         }
                         err(EXIT_FAILURE, "write");
@@ -572,7 +574,8 @@ int main(int argc, char **argv) {
             if (evt->events & EPOLLHUP) {
                 if (evt->data.fd == STDIN_FILENO) {
                     close(pipe_in[1]);
-                    epoll_ctl(epoll_fd, EPOLL_CTL_DEL, STDIN_FILENO, NULL);
+                    check_posix(epoll_ctl(epoll_fd, EPOLL_CTL_DEL, STDIN_FILENO, NULL),
+                                "epoll_ctl");
                 }
                 close(evt->data.fd);
             }
