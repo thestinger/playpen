@@ -327,7 +327,13 @@ int main(int argc, char **argv) {
     int pipe_ready[2];
     check_posix(pipe2(pipe_ready, O_CLOEXEC), "pipe2");
 
-    epoll_watch(epoll_fd, STDIN_FILENO);
+    int rc = epoll_ctl(epoll_fd, EPOLL_CTL_ADD, STDIN_FILENO,
+                       &(struct epoll_event){ .data.fd = STDIN_FILENO, .events = EPOLLIN });
+    if (rc == -1) {
+        if (errno != EPERM) err(EXIT_FAILURE, "epoll_ctl");
+    }
+    const bool stdin_non_epoll = rc == -1;
+
     epoll_watch(epoll_fd, pipe_out[0]);
     epoll_watch(epoll_fd, pipe_err[0]);
 
@@ -532,12 +538,31 @@ int main(int argc, char **argv) {
             }
 
             if (evt->events & EPOLLOUT && evt->data.fd == pipe_in[1]) {
+                if (stdin_non_epoll) {
+                    for (;;) {
+                        stdin_bytes_read = read(STDIN_FILENO, stdin_buffer, sizeof stdin_buffer);
+                        check_posix(stdin_bytes_read, "read");
+                        ssize_t bytes_written = write(pipe_in[1], stdin_buffer,
+                                                      (size_t)stdin_bytes_read);
+                        if (bytes_written == -1) {
+                            if (errno == EAGAIN) break;
+                            err(EXIT_FAILURE, "write");
+                        }
+
+                        if (stdin_bytes_read < (ssize_t)sizeof stdin_buffer) {
+                            close(STDIN_FILENO);
+                            close(pipe_in[1]);
+                            break;
+                        }
+                    }
+
+                    continue;
+                }
+
                 if (stdin_bytes_read == 0) continue;
                 ssize_t bytes_written = write(pipe_in[1], stdin_buffer, (size_t)stdin_bytes_read);
                 if (bytes_written == -1) {
-                    if (errno == EAGAIN) {
-                        continue;
-                    }
+                    if (errno == EAGAIN) continue;
                     err(EXIT_FAILURE, "write");
                 }
                 epoll_watch(epoll_fd, STDIN_FILENO);
