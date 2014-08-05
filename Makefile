@@ -2,7 +2,7 @@ PREFIX = /usr/local
 
 # use clang as the fallback instead of cc
 CC = $(shell echo $${CC:-clang})
-CFLAGS += -std=c11 -O2 \
+CFLAGS += -std=c11 -D_GNU_SOURCE -O2 \
 	  -fPIE -fstack-protector-strong \
 	  -DVERSION=\"$(shell git describe)\" $(shell pkg-config --cflags gio-2.0)
 LDLIBS = -lseccomp $(shell pkg-config --libs gio-2.0) -lsystemd
