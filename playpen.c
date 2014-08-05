@@ -370,7 +370,7 @@ int main(int argc, char **argv) {
 
         check_posix(sethostname(hostname, strlen(hostname)), "sethostname");
 
-        // avoid propagating mounts to or from the real root
+        // avoid propagating mounts to or from the parent's mount namespace
         mountx(NULL, "/", NULL, MS_PRIVATE|MS_REC, NULL);
 
         // turn directory into a bind mount
