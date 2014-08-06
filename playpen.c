@@ -38,6 +38,14 @@ __attribute__((format(printf, 2, 3))) static void check_posix(intmax_t rc, const
     va_end(args);
 }
 
+__attribute__((format(printf, 2, 3))) static bool check_eagain(intmax_t rc, const char *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    if (rc == -1 && errno != EAGAIN) verr(EXIT_FAILURE, fmt, args);
+    va_end(args);
+    return rc == -1 && errno == EAGAIN;
+}
+
 static void mountx(const char *source, const char *target, const char *filesystemtype,
                    unsigned long mountflags, const void *data) {
     check_posix(mount(source, target, filesystemtype, mountflags, data),
@@ -129,10 +137,7 @@ static void copy_pipe_to(int in_fd, int out_fd) {
     do {
         uint8_t buffer[BUFSIZ];
         n = read(in_fd, buffer, sizeof buffer);
-        if (n == -1) {
-            if (errno == EAGAIN) return;
-            err(EXIT_FAILURE, "read");
-        }
+        if (check_eagain(n, "read")) return;
         check_posix(write(out_fd, buffer, (size_t)n), "write");
     } while (n != 0);
 }
@@ -532,13 +537,10 @@ int main(int argc, char **argv) {
                         continue;
                     }
                     ssize_t bytes_written = write(pipe_in[1], stdin_buffer, (size_t)stdin_bytes_read);
-                    if (bytes_written == -1) {
-                        if (errno == EAGAIN) {
-                            check_posix(epoll_ctl(epoll_fd, EPOLL_CTL_DEL, STDIN_FILENO, NULL),
-                                        "epoll_ctl");
-                            continue;
-                        }
-                        err(EXIT_FAILURE, "write");
+                    if (check_eagain(bytes_written, "write")) {
+                        check_posix(epoll_ctl(epoll_fd, EPOLL_CTL_DEL, STDIN_FILENO, NULL),
+                                    "epoll_ctl");
+                        continue;
                     }
                     stdin_bytes_read = 0;
                 }
@@ -551,10 +553,7 @@ int main(int argc, char **argv) {
                         check_posix(stdin_bytes_read, "read");
                         ssize_t bytes_written = write(pipe_in[1], stdin_buffer,
                                                       (size_t)stdin_bytes_read);
-                        if (bytes_written == -1) {
-                            if (errno == EAGAIN) break;
-                            err(EXIT_FAILURE, "write");
-                        }
+                        if (check_eagain(bytes_written, "write")) break;
 
                         if (stdin_bytes_read < (ssize_t)sizeof stdin_buffer) {
                             close(STDIN_FILENO);
@@ -568,10 +567,7 @@ int main(int argc, char **argv) {
 
                 if (stdin_bytes_read == 0) continue;
                 ssize_t bytes_written = write(pipe_in[1], stdin_buffer, (size_t)stdin_bytes_read);
-                if (bytes_written == -1) {
-                    if (errno == EAGAIN) continue;
-                    err(EXIT_FAILURE, "write");
-                }
+                if (check_eagain(bytes_written, "write")) continue;
                 epoll_watch(epoll_fd, STDIN_FILENO);
                 stdin_bytes_read = 0;
             }
