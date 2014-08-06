@@ -332,9 +332,7 @@ int main(int argc, char **argv) {
 
     int rc = epoll_ctl(epoll_fd, EPOLL_CTL_ADD, STDIN_FILENO,
                        &(struct epoll_event){ .data.fd = STDIN_FILENO, .events = EPOLLIN });
-    if (rc == -1) {
-        if (errno != EPERM) err(EXIT_FAILURE, "epoll_ctl");
-    }
+    if (rc == -1 && errno != EPERM) err(EXIT_FAILURE, "epoll_ctl");
     const bool stdin_non_epoll = rc == -1;
 
     epoll_watch(epoll_fd, pipe_out[0]);
