@@ -539,6 +539,7 @@ int main(int argc, char **argv) {
                         continue;
                     }
                     stdin_bytes_read = 0;
+                    continue;
                 }
             }
 
