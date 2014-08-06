@@ -465,12 +465,11 @@ int main(int argc, char **argv) {
         check_posix(timerfd_settime(timer_fd, 0, &spec, NULL), "timerfd_settime");
     }
 
-    struct epoll_event events[4];
-
     uint8_t stdin_buffer[PIPE_BUF];
     ssize_t stdin_bytes_read = 0;
 
     for (;;) {
+        struct epoll_event events[4];
         int n_event = epoll_wait(epoll_fd, events, 4, -1);
 
         if (n_event < 0) {
