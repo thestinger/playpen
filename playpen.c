@@ -543,8 +543,21 @@ int main(int argc, char **argv) {
                 }
             }
 
+            // the child process is ready for more input
             if (evt->events & EPOLLOUT && evt->data.fd == pipe_in[1]) {
+                // deal with previously buffered data
+                if (stdin_bytes_read > 0) {
+                    ssize_t bytes_written = write(pipe_in[1], stdin_buffer, (size_t)stdin_bytes_read);
+                    if (check_eagain(bytes_written, "write")) continue;
+                    stdin_bytes_read = 0;
+
+                    if (!stdin_non_epoll) {
+                        epoll_watch(epoll_fd, STDIN_FILENO); // accept more data
+                    }
+                }
+
                 if (stdin_non_epoll) {
+                    // drain stdin until a write would block
                     for (;;) {
                         stdin_bytes_read = read(STDIN_FILENO, stdin_buffer, sizeof stdin_buffer);
                         check_posix(stdin_bytes_read, "read");
@@ -558,15 +571,8 @@ int main(int argc, char **argv) {
                             break;
                         }
                     }
-
                     continue;
                 }
-
-                if (stdin_bytes_read == 0) continue;
-                ssize_t bytes_written = write(pipe_in[1], stdin_buffer, (size_t)stdin_bytes_read);
-                if (check_eagain(bytes_written, "write")) continue;
-                epoll_watch(epoll_fd, STDIN_FILENO);
-                stdin_bytes_read = 0;
             }
 
             if (evt->events & EPOLLHUP) {
