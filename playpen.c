@@ -309,13 +309,6 @@ int main(int argc, char **argv) {
 
     epoll_watch(epoll_fd, sig_fd);
 
-    int timer_fd = -1;
-    if (timeout) {
-        timer_fd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK|TFD_CLOEXEC);
-        check_posix(timer_fd, "timerfd_create");
-        epoll_watch(epoll_fd, timer_fd);
-    }
-
     int pipe_in[2];
     int pipe_out[2];
     int pipe_err[2];
@@ -462,7 +455,12 @@ int main(int argc, char **argv) {
 
     check_posix(write(pipe_ready[1], &(uint8_t) { 0 }, 1), "write");
 
+    int timer_fd = -1;
     if (timeout) {
+        timer_fd = timerfd_create(CLOCK_MONOTONIC, TFD_CLOEXEC);
+        check_posix(timer_fd, "timerfd_create");
+        epoll_watch(epoll_fd, timer_fd);
+
         struct itimerspec spec = { .it_value = { .tv_sec = timeout } };
         check_posix(timerfd_settime(timer_fd, 0, &spec, NULL), "timerfd_settime");
     }
