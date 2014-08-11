@@ -52,6 +52,40 @@ static void mountx(const char *source, const char *target, const char *filesyste
                 "mounting %s as %s (%s) failed", source, target, filesystemtype);
 }
 
+struct bind_list {
+    struct bind_list *next;
+    char arg[];
+};
+
+static struct bind_list *bind_list_alloc(const char *arg) {
+    size_t len = strlen(arg);
+    struct bind_list *next = malloc(sizeof(struct bind_list) + len + 1);
+    if (!next) err(EXIT_FAILURE, "malloc");
+
+    next->next = NULL;
+    strcpy(next->arg, arg);
+    return next;
+}
+
+static void bind_list_apply(const char *root, struct bind_list *list, bool read_only) {
+    for (; list; list = list->next) {
+        char *dst;
+        check_posix(asprintf(&dst, "%s/%s", root, list->arg), "asprintf");
+        mountx(list->arg, dst, "bind", MS_BIND|MS_REC, NULL);
+        if (read_only)
+            mountx(list->arg, dst, "bind", MS_BIND|MS_REMOUNT|MS_RDONLY|MS_REC, NULL);
+        free(dst);
+    }
+}
+
+static void bind_list_free(struct bind_list *list) {
+    while (list) {
+        struct bind_list *next = list->next;
+        free(list);
+        list = next;
+    }
+}
+
 static const char *const systemd_bus_name = "org.freedesktop.systemd1";
 static const char *const systemd_path_name = "/org/freedesktop/systemd1";
 static const char *const manager_interface = "org.freedesktop.systemd1.Manager";
@@ -211,6 +245,8 @@ int main(int argc, char **argv) {
     const char *hostname = "playpen";
     long timeout = 0;
     long memory_limit = 128;
+    struct bind_list *binds = NULL, *binds_tail = NULL;
+    struct bind_list *rw_binds = NULL, *rw_binds_tail = NULL;
     char *devices = NULL;
     char *syscalls = NULL;
     const char *syscalls_file = NULL;
@@ -221,13 +257,15 @@ int main(int argc, char **argv) {
         { "version",       no_argument,       0, 'v' },
         { "mount-proc",    no_argument,       0, 'p' },
         { "mount-dev",     no_argument,       0, 0x100 },
+        { "bind",          required_argument, 0, 0x101 },
+        { "bind-rw",       required_argument, 0, 0x102 },
         { "user",          required_argument, 0, 'u' },
         { "hostname",      required_argument, 0, 'n' },
         { "timeout",       required_argument, 0, 't' },
         { "memory-limit",  required_argument, 0, 'm' },
         { "devices",       required_argument, 0, 'd' },
         { "syscalls",      required_argument, 0, 's' },
-        { "syscalls-file", required_argument, 0, 0x101 },
+        { "syscalls-file", required_argument, 0, 0x103 },
         { 0, 0, 0, 0 }
     };
 
@@ -248,6 +286,22 @@ int main(int argc, char **argv) {
         case 0x100:
             mount_dev = true;
             break;
+        case 0x101:
+            if (binds) {
+                binds_tail->next = bind_list_alloc(optarg);
+                binds_tail = binds_tail->next;
+            } else {
+                binds = binds_tail = bind_list_alloc(optarg);
+            }
+            break;
+        case 0x102:
+            if (rw_binds) {
+                rw_binds_tail->next = bind_list_alloc(optarg);
+                rw_binds_tail = rw_binds_tail->next;
+            } else {
+                rw_binds = rw_binds_tail = bind_list_alloc(optarg);
+            }
+            break;
         case 'u':
             username = optarg;
             break;
@@ -266,7 +320,7 @@ int main(int argc, char **argv) {
         case 's':
             syscalls = optarg;
             break;
-        case 0x101:
+        case 0x103:
             syscalls_file = optarg;
             break;
         default:
@@ -375,6 +429,9 @@ int main(int argc, char **argv) {
         // re-mount as read-only
         mountx(root, root, "bind", MS_BIND|MS_REMOUNT|MS_RDONLY|MS_REC, NULL);
 
+        bind_list_apply(root, binds, true);
+        bind_list_apply(root, rw_binds, false);
+
         // preserve a reference to the target directory
         check_posix(chdir(root), "chdir");
 
@@ -445,6 +502,9 @@ int main(int argc, char **argv) {
         check(seccomp_load(ctx));
         check_posix(execvpe(argv[optind], argv + optind, env), "execvpe");
     }
+
+    bind_list_free(binds);
+    bind_list_free(rw_binds);
 
     GDBusConnection *connection = get_system_bus();
 
