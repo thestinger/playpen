@@ -432,6 +432,15 @@ int main(int argc, char **argv) {
         // preserve a reference to the target directory
         check_posix(chdir(root), "chdir");
 
+        if (mount_proc) {
+            mountx(NULL, "proc", "proc", MS_NOSUID|MS_NOEXEC|MS_NODEV, NULL);
+        }
+        if (mount_dev) {
+            mountx(NULL, "dev", "devtmpfs", MS_NOSUID|MS_NOEXEC, NULL);
+        }
+        mountx(NULL, "dev/shm", "tmpfs", MS_NOSUID|MS_NODEV, NULL);
+        mountx(NULL, "tmp", "tmpfs", MS_NOSUID|MS_NODEV, NULL);
+
         bind_list_apply(binds, true);
         bind_list_apply(rw_binds, false);
 
@@ -441,15 +450,6 @@ int main(int argc, char **argv) {
         // chroot into the root of the mount namespace
         check_posix(chroot("."), "chroot into `%s` failed", root);
         check_posix(chdir("/"), "entering chroot `%s` failed", root);
-
-        if (mount_proc) {
-            mountx(NULL, "/proc", "proc", MS_NOSUID|MS_NOEXEC|MS_NODEV, NULL);
-        }
-        if (mount_dev) {
-            mountx(NULL, "/dev", "devtmpfs", MS_NOSUID|MS_NOEXEC, NULL);
-        }
-        mountx(NULL, "/dev/shm", "tmpfs", MS_NOSUID|MS_NODEV, NULL);
-        mountx(NULL, "/tmp", "tmpfs", MS_NOSUID|MS_NODEV, NULL);
 
         errno = 0;
         struct passwd *pw = getpwnam(username);
