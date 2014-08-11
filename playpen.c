@@ -67,10 +67,10 @@ static struct bind_list *bind_list_alloc(const char *arg) {
     return next;
 }
 
-static void bind_list_apply(const char *root, struct bind_list *list, bool read_only) {
+static void bind_list_apply(struct bind_list *list, bool read_only) {
     for (; list; list = list->next) {
         char *dst;
-        check_posix(asprintf(&dst, "%s/%s", root, list->arg), "asprintf");
+        check_posix(asprintf(&dst, "./%s", list->arg), "asprintf");
         mountx(list->arg, dst, "bind", MS_BIND|MS_REC, NULL);
         if (read_only)
             mountx(list->arg, dst, "bind", MS_BIND|MS_REMOUNT|MS_RDONLY|MS_REC, NULL);
@@ -429,11 +429,11 @@ int main(int argc, char **argv) {
         // re-mount as read-only
         mountx(root, root, "bind", MS_BIND|MS_REMOUNT|MS_RDONLY|MS_REC, NULL);
 
-        bind_list_apply(root, binds, true);
-        bind_list_apply(root, rw_binds, false);
-
         // preserve a reference to the target directory
         check_posix(chdir(root), "chdir");
+
+        bind_list_apply(binds, true);
+        bind_list_apply(rw_binds, false);
 
         // make the working directory into the root of the mount namespace
         mountx(".", "/", NULL, MS_MOVE, NULL);
