@@ -191,6 +191,8 @@ _Noreturn static void usage(FILE *out) {
           " -v, --version               display version\n"
           " -p, --mount-proc            mount /proc in the container\n"
           "     --mount-dev             mount /dev as devtmpfs in the container\n"
+          "     --bind                  bind mount a read-only directory in the container\n"
+          "     --bind-rw               bind mount a directory in the container\n"
           " -u, --user=USER             the user to run the program as\n"
           " -n, --hostname=NAME         the hostname to set the container to\n"
           " -t, --timeout=INTEGER       how long the container is allowed to run\n"
