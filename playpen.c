@@ -175,8 +175,8 @@ static void stop_scope_unit(GDBusConnection *connection, const char *unit_name) 
         g_variant_unref(reply);
 }
 
-static void epoll_watch(int epoll_fd, int fd) {
-    struct epoll_event event = { .data.fd = fd, .events = EPOLLIN };
+static void epoll_add(int epoll_fd, int fd, uint32_t events) {
+    struct epoll_event event = { .data.fd = fd, .events = events };
     check_posix(epoll_ctl(epoll_fd, EPOLL_CTL_ADD, fd, &event), "epoll_ctl");
 }
 
@@ -412,7 +412,7 @@ int main(int argc, char **argv) {
     int sig_fd = signalfd(-1, &mask, SFD_CLOEXEC);
     check_posix(sig_fd, "signalfd");
 
-    epoll_watch(epoll_fd, sig_fd);
+    epoll_add(epoll_fd, sig_fd, EPOLLIN);
 
     int pipe_in[2];
     int pipe_out[2];
@@ -433,11 +433,9 @@ int main(int argc, char **argv) {
     if (rc == -1 && errno != EPERM) err(EXIT_FAILURE, "epoll_ctl");
     const bool stdin_non_epoll = rc == -1;
 
-    epoll_watch(epoll_fd, pipe_out[0]);
-    epoll_watch(epoll_fd, pipe_err[0]);
-
-    struct epoll_event event = { .data.fd = pipe_in[1], .events = EPOLLET | EPOLLOUT };
-    check_posix(epoll_ctl(epoll_fd, EPOLL_CTL_ADD, pipe_in[1], &event), "epoll_ctl");
+    epoll_add(epoll_fd, pipe_out[0], EPOLLIN);
+    epoll_add(epoll_fd, pipe_err[0], EPOLLIN);
+    epoll_add(epoll_fd, pipe_in[1], EPOLLET | EPOLLOUT);
 
     unsigned long flags = SIGCHLD|CLONE_NEWIPC|CLONE_NEWNS|CLONE_NEWPID|CLONE_NEWUTS|CLONE_NEWNET;
     pid_t pid = (pid_t)syscall(__NR_clone, flags, NULL);
@@ -570,7 +568,7 @@ int main(int argc, char **argv) {
     if (timeout) {
         timer_fd = timerfd_create(CLOCK_MONOTONIC, TFD_CLOEXEC);
         check_posix(timer_fd, "timerfd_create");
-        epoll_watch(epoll_fd, timer_fd);
+        epoll_add(epoll_fd, timer_fd, EPOLLIN);
 
         struct itimerspec spec = { .it_value = { .tv_sec = timeout } };
         check_posix(timerfd_settime(timer_fd, 0, &spec, NULL), "timerfd_settime");
@@ -638,7 +636,7 @@ int main(int argc, char **argv) {
                     stdin_bytes_read = 0;
 
                     if (!stdin_non_epoll) {
-                        epoll_watch(epoll_fd, STDIN_FILENO); // accept more data
+                        epoll_add(epoll_fd, STDIN_FILENO, EPOLLIN); // accept more data
                     }
                 }
 
