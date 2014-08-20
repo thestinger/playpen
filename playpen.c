@@ -238,6 +238,34 @@ static long strtolx_positive(const char *s, const char *what) {
     return result;
 }
 
+static void handle_signal(int sig_fd) {
+    struct signalfd_siginfo si;
+    ssize_t bytes_r = read(sig_fd, &si, sizeof(si));
+    check_posix(bytes_r, "read");
+
+    if (bytes_r != sizeof(si)) {
+        errx(EXIT_FAILURE, "read the wrong amount of bytes");
+    } else if (si.ssi_signo != SIGCHLD) {
+        errx(EXIT_FAILURE, "got an unexpected signal");
+    }
+
+    switch (si.ssi_code) {
+    case CLD_EXITED:
+        if (si.ssi_status) {
+            warnx("application terminated with error code %d", si.ssi_status);
+        }
+        exit(si.ssi_status);
+    case CLD_KILLED:
+    case CLD_DUMPED:
+        errx(EXIT_FAILURE, "application terminated abnormally with signal %d (%s)",
+             si.ssi_status, strsignal(si.ssi_status));
+    case CLD_TRAPPED:
+    case CLD_STOPPED:
+    default:
+        break;
+    }
+}
+
 int main(int argc, char **argv) {
     g_log_set_always_fatal(G_LOG_LEVEL_WARNING | G_LOG_LEVEL_CRITICAL);
 
@@ -556,31 +584,7 @@ int main(int argc, char **argv) {
                     stop_scope_unit(connection, unit_name);
                     return EXIT_FAILURE;
                 } else if (evt->data.fd == sig_fd) {
-                    struct signalfd_siginfo si;
-                    ssize_t bytes_r = read(sig_fd, &si, sizeof(si));
-                    check_posix(bytes_r, "read");
-
-                    if (bytes_r != sizeof(si)) {
-                        errx(EXIT_FAILURE, "read the wrong amount of bytes");
-                    } else if (si.ssi_signo != SIGCHLD) {
-                        errx(EXIT_FAILURE, "got an unexpected signal");
-                    }
-
-                    switch (si.ssi_code) {
-                    case CLD_EXITED:
-                        if (si.ssi_status) {
-                            warnx("application terminated with error code %d", si.ssi_status);
-                        }
-                        return si.ssi_status;
-                    case CLD_KILLED:
-                    case CLD_DUMPED:
-                        errx(EXIT_FAILURE, "application terminated abnormally with signal %d (%s)",
-                             si.ssi_status, strsignal(si.ssi_status));
-                    case CLD_TRAPPED:
-                    case CLD_STOPPED:
-                    default:
-                        break;
-                    }
+                    handle_signal(sig_fd);
                 } else if (evt->data.fd == pipe_out[0]) {
                     copy_pipe_to(pipe_out[0], STDOUT_FILENO);
                 } else if (evt->data.fd == pipe_err[0]) {
