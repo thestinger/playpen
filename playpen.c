@@ -151,6 +151,15 @@ static void start_scope_unit(GDBusConnection *connection, pid_t child_pid, long 
     wait_for_unit(child_pid, unit_name);
 }
 
+// NoSuchUnit errors are expected as the contained processes can die at any point.
+static bool is_unexpected_stop_unit_error(GError *error) {
+    if (!g_dbus_error_is_remote_error(error)) return false;
+    char *name = g_dbus_error_get_remote_error(error);
+    bool ret = strcmp(name, "org.freedesktop.systemd1.NoSuchUnit");
+    g_free(name);
+    return ret;
+}
+
 static void stop_scope_unit(GDBusConnection *connection, const char *unit_name) {
     GError *error = NULL;
     GVariant *reply = g_dbus_connection_call_sync(connection, systemd_bus_name, systemd_path_name,
@@ -158,8 +167,12 @@ static void stop_scope_unit(GDBusConnection *connection, const char *unit_name) 
                                                   g_variant_new("(ss)", unit_name, "fail"),
                                                   G_VARIANT_TYPE("(o)"),
                                                   G_DBUS_CALL_FLAGS_NONE, -1, NULL, &error);
-    if (error) errx(EXIT_FAILURE, "%s", error->message);
-    g_variant_unref(reply);
+    if (error) {
+        if (is_unexpected_stop_unit_error(error))
+            errx(EXIT_FAILURE, "%s", error->message);
+        g_error_free(error);
+    } else
+        g_variant_unref(reply);
 }
 
 static void epoll_watch(int epoll_fd, int fd) {
