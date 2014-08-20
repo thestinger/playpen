@@ -133,6 +133,8 @@ static void start_scope_unit(GDBusConnection *connection, pid_t child_pid, long 
                           g_variant_new("t", 1024ULL * 1024ULL * (unsigned long long)memory_limit));
     g_variant_builder_add(properties, "(sv)", "DevicePolicy", g_variant_new("s", "strict"));
     g_variant_builder_add(properties, "(sv)", "DeviceAllow", g_variant_new("a(ss)", allowed));
+    g_variant_builder_add(properties, "(sv)", "CPUAccounting", g_variant_new("b", TRUE));
+    g_variant_builder_add(properties, "(sv)", "BlockIOAccounting", g_variant_new("b", TRUE));
 
     GError *error = NULL;
     GVariant *reply = g_dbus_connection_call_sync(connection, systemd_bus_name, systemd_path_name,
