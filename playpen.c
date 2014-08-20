@@ -251,16 +251,21 @@ static long strtolx_positive(const char *s, const char *what) {
     return result;
 }
 
-static void handle_signal(int sig_fd) {
+static void handle_signal(int sig_fd, GDBusConnection *connection, const char *unit_name) {
     struct signalfd_siginfo si;
     ssize_t bytes_r = read(sig_fd, &si, sizeof(si));
     check_posix(bytes_r, "read");
 
-    if (bytes_r != sizeof(si)) {
+    if (bytes_r != sizeof(si))
         errx(EXIT_FAILURE, "read the wrong amount of bytes");
-    } else if (si.ssi_signo != SIGCHLD) {
-        errx(EXIT_FAILURE, "got an unexpected signal");
+
+    if (si.ssi_signo == SIGINT) {
+        stop_scope_unit(connection, unit_name);
+        errx(EXIT_FAILURE, "interrupted, stopping early");
     }
+
+    if (si.ssi_signo != SIGCHLD)
+        errx(EXIT_FAILURE, "got an unexpected signal");
 
     switch (si.ssi_code) {
     case CLD_EXITED:
@@ -400,6 +405,7 @@ int main(int argc, char **argv) {
     sigset_t mask;
     sigemptyset(&mask);
     sigaddset(&mask, SIGCHLD);
+    sigaddset(&mask, SIGINT);
 
     check_posix(sigprocmask(SIG_BLOCK, &mask, NULL), "sigprocmask");
 
@@ -597,7 +603,7 @@ int main(int argc, char **argv) {
                     stop_scope_unit(connection, unit_name);
                     return EXIT_FAILURE;
                 } else if (evt->data.fd == sig_fd) {
-                    handle_signal(sig_fd);
+                    handle_signal(sig_fd, connection, unit_name);
                 } else if (evt->data.fd == pipe_out[0]) {
                     copy_pipe_to(pipe_out[0], STDOUT_FILENO);
                 } else if (evt->data.fd == pipe_err[0]) {
