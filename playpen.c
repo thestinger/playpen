@@ -259,7 +259,10 @@ static void handle_signal(int sig_fd, GDBusConnection *connection, const char *u
     if (bytes_r != sizeof(si))
         errx(EXIT_FAILURE, "read the wrong amount of bytes");
 
-    if (si.ssi_signo == SIGINT) {
+    switch (si.ssi_signo) {
+    case SIGHUP:
+    case SIGINT:
+    case SIGTERM:
         stop_scope_unit(connection, unit_name);
         errx(EXIT_FAILURE, "interrupted, stopping early");
     }
@@ -405,7 +408,9 @@ int main(int argc, char **argv) {
     sigset_t mask;
     sigemptyset(&mask);
     sigaddset(&mask, SIGCHLD);
+    sigaddset(&mask, SIGHUP);
     sigaddset(&mask, SIGINT);
+    sigaddset(&mask, SIGTERM);
 
     check_posix(sigprocmask(SIG_BLOCK, &mask, NULL), "sigprocmask");
 
