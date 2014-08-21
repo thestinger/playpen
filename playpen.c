@@ -418,15 +418,10 @@ int main(int argc, char **argv) {
     int pipe_out[2];
     int pipe_err[2];
     check_posix(pipe(pipe_in), "pipe");
-    set_non_blocking(pipe_in[1]);
     check_posix(pipe(pipe_out), "pipe");
     set_non_blocking(pipe_out[0]);
     check_posix(pipe(pipe_err), "pipe");
     set_non_blocking(pipe_err[0]);
-
-    // A pipe for signalling that the scope unit is set up.
-    int pipe_ready[2];
-    check_posix(pipe2(pipe_ready, O_CLOEXEC), "pipe2");
 
     int rc = epoll_ctl(epoll_fd, EPOLL_CTL_ADD, STDIN_FILENO,
                        &(struct epoll_event){ .data.fd = STDIN_FILENO, .events = EPOLLIN });
@@ -454,8 +449,6 @@ int main(int argc, char **argv) {
         close(pipe_err[0]);
         close(pipe_err[1]);
 
-        close(pipe_ready[1]);
-
         // Kill this process if the parent dies. This is not a replacement for killing the sandboxed
         // processes via a control group as it is not inherited by child processes, but is more
         // robust when the sandboxed process is not allowed to fork.
@@ -464,8 +457,7 @@ int main(int argc, char **argv) {
         // Wait until the scope unit is set up before moving on. This also ensures that the parent
         // didn't die before `prctl` was called.
         uint8_t ready;
-        check_posix(read(pipe_ready[0], &ready, sizeof ready), "read");
-        close(pipe_ready[0]);
+        check_posix(read(STDIN_FILENO, &ready, sizeof ready), "read");
 
         check_posix(sethostname(hostname, strlen(hostname)), "sethostname");
 
@@ -562,7 +554,9 @@ int main(int argc, char **argv) {
 
     start_scope_unit(connection, pid, memory_limit, devices, unit_name);
 
-    check_posix(write(pipe_ready[1], &(uint8_t) { 0 }, 1), "write");
+    // Inform the child that the scope unit has been created.
+    check_posix(write(pipe_in[1], &(uint8_t) { 0 }, 1), "write");
+    set_non_blocking(pipe_in[1]);
 
     int timer_fd = -1;
     if (timeout) {
