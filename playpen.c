@@ -303,7 +303,6 @@ int main(int argc, char **argv) {
     char *devices = NULL;
     char *syscalls = NULL;
     const char *syscalls_file = NULL;
-    int syscalls_from_file[500]; // upper bound on the number of syscalls
 
     static const struct option opts[] = {
         { "help",          no_argument,       0, 'h' },
@@ -388,18 +387,29 @@ int main(int argc, char **argv) {
     const char *root = argv[optind];
     optind++;
 
+    scmp_filter_ctx ctx = seccomp_init(SCMP_ACT_KILL);
+    if (!ctx) errx(EXIT_FAILURE, "seccomp_init");
+
     if (syscalls_file) {
         char name[30]; // longest syscall name
         FILE *file = fopen(syscalls_file, "r");
         if (!file) err(EXIT_FAILURE, "failed to open syscalls file: %s", syscalls_file);
-        size_t i = 0;
         while (fgets(name, sizeof name / sizeof name[0], file)) {
             char *pos;
             if ((pos = strchr(name, '\n'))) *pos = '\0';
-            syscalls_from_file[i++] = get_syscall_nr(name);
+            check(seccomp_rule_add(ctx, SCMP_ACT_ALLOW, get_syscall_nr(name), 0));
         }
-        syscalls_from_file[i] = -1;
         fclose(file);
+    }
+
+    check(seccomp_rule_add(ctx, SCMP_ACT_ALLOW, __NR_execve, 0));
+
+    if (syscalls) {
+        for (char *s_ptr = syscalls, *saveptr; ; s_ptr = NULL) {
+            const char *syscall = strtok_r(s_ptr, ",", &saveptr);
+            if (!syscall) break;
+            check(seccomp_rule_add(ctx, SCMP_ACT_ALLOW, get_syscall_nr(syscall), 0));
+        }
     }
 
     int epoll_fd = epoll_create1(EPOLL_CLOEXEC);
@@ -527,30 +537,13 @@ int main(int argc, char **argv) {
             errx(EXIT_FAILURE, "asprintf");
         }
 
-        scmp_filter_ctx ctx = seccomp_init(SCMP_ACT_KILL);
-        if (!ctx) errx(EXIT_FAILURE, "seccomp_init");
-
-        check(seccomp_rule_add(ctx, SCMP_ACT_ALLOW, __NR_execve, 0));
-
-        if (syscalls) {
-            for (char *s_ptr = syscalls, *saveptr; ; s_ptr = NULL) {
-                const char *syscall = strtok_r(s_ptr, ",", &saveptr);
-                if (!syscall) break;
-                check(seccomp_rule_add(ctx, SCMP_ACT_ALLOW, get_syscall_nr(syscall), 0));
-            }
-        }
-
-        for (size_t i = 0; i < sizeof syscalls_from_file / sizeof syscalls_from_file[0]; i++) {
-            if (syscalls_from_file[i] == -1) break;
-            check(seccomp_rule_add(ctx, SCMP_ACT_ALLOW, syscalls_from_file[i], 0));
-        }
-
         check(seccomp_load(ctx));
         check_posix(execvpe(argv[optind], argv + optind, env), "execvpe");
     }
 
     bind_list_free(binds);
     bind_list_free(rw_binds);
+    seccomp_release(ctx);
 
     GDBusConnection *connection = get_system_bus();
 
