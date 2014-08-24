@@ -17,15 +17,19 @@
 #include <sys/epoll.h>
 #include <sys/mount.h>
 #include <sys/prctl.h>
+#include <sys/ptrace.h>
 #include <sys/resource.h>
 #include <sys/signalfd.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/timerfd.h>
+#include <sys/reg.h>
 
 #include <gio/gio.h>
 #include <seccomp.h>
 #include <systemd/sd-login.h>
+
+#define SYSCALL_NAME_MAX 30
 
 static void check(int rc) {
     if (rc < 0) errx(EXIT_FAILURE, "%s", strerror(-rc));
@@ -214,7 +218,8 @@ _Noreturn static void usage(FILE *out) {
           " -m, --memory-limit=LIMIT    the memory limit of the container\n"
           " -d, --devices=LIST          comma-separated whitelist of devices\n"
           " -s, --syscalls=LIST         comma-separated whitelist of syscalls\n"
-          "     --syscalls-file=PATH    whitelist file containing one syscall name per line\n",
+          "     --syscalls-file=PATH    whitelist file containing one syscall name per line\n"
+          " -l, --learn=PATH            allow unwhitelisted syscalls and append them to a file\n",
           out);
 
     exit(out == stderr ? EXIT_FAILURE : EXIT_SUCCESS);
@@ -251,7 +256,35 @@ static long strtolx_positive(const char *s, const char *what) {
     return result;
 }
 
-static void handle_signal(int sig_fd, GDBusConnection *connection, const char *unit_name) {
+static void do_trace(const struct signalfd_siginfo *si, bool *trace_init, FILE *learn) {
+    if (*trace_init) {
+        long syscall = ptrace(PTRACE_PEEKUSER, si->ssi_pid, sizeof(long)*ORIG_RAX);
+        char *name = seccomp_syscall_resolve_num_arch(SCMP_ARCH_NATIVE, (int)syscall);
+
+        rewind(learn);
+        char line[SYSCALL_NAME_MAX];
+        while (fgets(line, sizeof line, learn)) {
+            char *pos;
+            if ((pos = strchr(line, '\n'))) *pos = '\0';
+            if (!strcmp(name, line)) {
+                name = NULL;
+                break;
+            }
+        }
+
+        if (name) {
+            fprintf(learn, "%s\n", name);
+            free(name);
+        }
+    } else {
+        ptrace(PTRACE_SETOPTIONS, si->ssi_pid, 0, PTRACE_O_TRACESECCOMP);
+        *trace_init = true;
+    }
+    ptrace(PTRACE_CONT, si->ssi_pid, 0, 0);
+}
+
+static void handle_signal(int sig_fd, GDBusConnection *connection, const char *unit_name,
+                          bool *trace_init, FILE *learn) {
     struct signalfd_siginfo si;
     ssize_t bytes_r = read(sig_fd, &si, sizeof(si));
     check_posix(bytes_r, "read");
@@ -281,6 +314,7 @@ static void handle_signal(int sig_fd, GDBusConnection *connection, const char *u
         errx(EXIT_FAILURE, "application terminated abnormally with signal %d (%s)",
              si.ssi_status, strsignal(si.ssi_status));
     case CLD_TRAPPED:
+        do_trace(&si, trace_init, learn);
     case CLD_STOPPED:
     default:
         break;
@@ -303,6 +337,7 @@ int main(int argc, char **argv) {
     char *devices = NULL;
     char *syscalls = NULL;
     const char *syscalls_file = NULL;
+    const char *learn_name = NULL;
 
     static const struct option opts[] = {
         { "help",          no_argument,       0, 'h' },
@@ -318,11 +353,12 @@ int main(int argc, char **argv) {
         { "devices",       required_argument, 0, 'd' },
         { "syscalls",      required_argument, 0, 's' },
         { "syscalls-file", required_argument, 0, 0x103 },
+        { "learn",         required_argument, 0, 'l' },
         { 0, 0, 0, 0 }
     };
 
     for (;;) {
-        int opt = getopt_long(argc, argv, "hvpu:r:n:t:m:d:s:", opts, NULL);
+        int opt = getopt_long(argc, argv, "hvpu:r:n:t:m:d:s:l:", opts, NULL);
         if (opt == -1)
             break;
 
@@ -375,6 +411,9 @@ int main(int argc, char **argv) {
         case 0x103:
             syscalls_file = optarg;
             break;
+        case 'l':
+            learn_name = optarg;
+            break;
         default:
             usage(stderr);
         }
@@ -387,14 +426,14 @@ int main(int argc, char **argv) {
     const char *root = argv[optind];
     optind++;
 
-    scmp_filter_ctx ctx = seccomp_init(SCMP_ACT_KILL);
+    scmp_filter_ctx ctx = seccomp_init(learn_name ? SCMP_ACT_TRACE(0) : SCMP_ACT_KILL);
     if (!ctx) errx(EXIT_FAILURE, "seccomp_init");
 
     if (syscalls_file) {
-        char name[30]; // longest syscall name
+        char name[SYSCALL_NAME_MAX];
         FILE *file = fopen(syscalls_file, "r");
         if (!file) err(EXIT_FAILURE, "failed to open syscalls file: %s", syscalls_file);
-        while (fgets(name, sizeof name / sizeof name[0], file)) {
+        while (fgets(name, sizeof name, file)) {
             char *pos;
             if ((pos = strchr(name, '\n'))) *pos = '\0';
             check(seccomp_rule_add(ctx, SCMP_ACT_ALLOW, get_syscall_nr(name), 0));
@@ -537,6 +576,8 @@ int main(int argc, char **argv) {
             errx(EXIT_FAILURE, "asprintf");
         }
 
+        if (learn_name) ptrace(PTRACE_TRACEME, 0, NULL, NULL);
+
         check(seccomp_load(ctx));
         check_posix(execvpe(argv[optind], argv + optind, env), "execvpe");
     }
@@ -544,6 +585,12 @@ int main(int argc, char **argv) {
     bind_list_free(binds);
     bind_list_free(rw_binds);
     seccomp_release(ctx);
+
+    FILE *learn = NULL;
+    if (learn_name) {
+        learn = fopen(learn_name, "a+");
+        if (!learn) err(EXIT_FAILURE, "fopen");
+    }
 
     GDBusConnection *connection = get_system_bus();
 
@@ -568,6 +615,7 @@ int main(int argc, char **argv) {
 
     uint8_t stdin_buffer[PIPE_BUF];
     ssize_t stdin_bytes_read = 0;
+    bool trace_init = false;
 
     for (;;) {
         struct epoll_event events[4];
@@ -593,7 +641,7 @@ int main(int argc, char **argv) {
                     stop_scope_unit(connection, unit_name);
                     return EXIT_FAILURE;
                 } else if (evt->data.fd == sig_fd) {
-                    handle_signal(sig_fd, connection, unit_name);
+                    handle_signal(sig_fd, connection, unit_name, &trace_init, learn);
                 } else if (evt->data.fd == pipe_out[0]) {
                     copy_pipe_to(pipe_out[0], STDOUT_FILENO);
                 } else if (evt->data.fd == pipe_err[0]) {
