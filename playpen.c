@@ -258,7 +258,9 @@ static long strtolx_positive(const char *s, const char *what) {
 
 static void do_trace(const struct signalfd_siginfo *si, bool *trace_init, FILE *learn) {
     if (*trace_init) {
+        errno = 0;
         long syscall = ptrace(PTRACE_PEEKUSER, si->ssi_pid, sizeof(long)*ORIG_RAX);
+        if (errno) err(EXIT_FAILURE, "ptrace");
         char *name = seccomp_syscall_resolve_num_arch(SCMP_ARCH_NATIVE, (int)syscall);
 
         rewind(learn);
@@ -277,10 +279,10 @@ static void do_trace(const struct signalfd_siginfo *si, bool *trace_init, FILE *
             free(name);
         }
     } else {
-        ptrace(PTRACE_SETOPTIONS, si->ssi_pid, 0, PTRACE_O_TRACESECCOMP);
+        check_posix(ptrace(PTRACE_SETOPTIONS, si->ssi_pid, 0, PTRACE_O_TRACESECCOMP), "ptrace");
         *trace_init = true;
     }
-    ptrace(PTRACE_CONT, si->ssi_pid, 0, 0);
+    check_posix(ptrace(PTRACE_CONT, si->ssi_pid, 0, 0), "ptrace");
 }
 
 static void handle_signal(int sig_fd, GDBusConnection *connection, const char *unit_name,
@@ -576,7 +578,7 @@ int main(int argc, char **argv) {
             errx(EXIT_FAILURE, "asprintf");
         }
 
-        if (learn_name) ptrace(PTRACE_TRACEME, 0, NULL, NULL);
+        if (learn_name) check_posix(ptrace(PTRACE_TRACEME, 0, NULL, NULL), "ptrace");
 
         check(seccomp_load(ctx));
         check_posix(execvpe(argv[optind], argv + optind, env), "execvpe");
