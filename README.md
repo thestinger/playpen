@@ -21,6 +21,18 @@ Playpen is a secure application sandbox built with modern Linux sandboxing featu
 * The system's hostname and IPC resources are hidden from the sandbox via
   namespaces.
 
+# Example
+
+    # create a chroot
+    mkdir -p sandbox/dev/shm
+    pacstrap -cd sandbox
+
+    # run `ls -l` in the sandbox and create a system call whitelist
+    playpen sandbox -l whitelist -- ls -l /
+
+    # run it again, enforcing the learned system call whitelist
+    playpen sandbox -S whitelist -- ls -l /
+
 # Dependencies
 
 * Linux 3.8 or later
