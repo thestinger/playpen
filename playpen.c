@@ -218,7 +218,7 @@ _Noreturn static void usage(FILE *out) {
           " -m, --memory-limit=LIMIT    the memory limit of the container\n"
           " -d, --devices=LIST          comma-separated whitelist of devices\n"
           " -s, --syscalls=LIST         comma-separated whitelist of syscalls\n"
-          "     --syscalls-file=PATH    whitelist file containing one syscall name per line\n"
+          " -S, --syscalls-file=PATH    whitelist file containing one syscall name per line\n"
           " -l, --learn=PATH            allow unwhitelisted syscalls and append them to a file\n",
           out);
 
@@ -352,13 +352,13 @@ int main(int argc, char **argv) {
         { "memory-limit",  required_argument, 0, 'm' },
         { "devices",       required_argument, 0, 'd' },
         { "syscalls",      required_argument, 0, 's' },
-        { "syscalls-file", required_argument, 0, 0x103 },
+        { "syscalls-file", required_argument, 0, 'S' },
         { "learn",         required_argument, 0, 'l' },
         { 0, 0, 0, 0 }
     };
 
     for (;;) {
-        int opt = getopt_long(argc, argv, "hvpu:r:n:t:m:d:s:l:", opts, NULL);
+        int opt = getopt_long(argc, argv, "hvpu:r:n:t:m:d:s:S:l:", opts, NULL);
         if (opt == -1)
             break;
 
@@ -408,7 +408,7 @@ int main(int argc, char **argv) {
         case 's':
             syscalls = optarg;
             break;
-        case 0x103:
+        case 'S':
             syscalls_file = optarg;
             break;
         case 'l':
