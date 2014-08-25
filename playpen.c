@@ -259,7 +259,11 @@ static long strtolx_positive(const char *s, const char *what) {
 static void do_trace(const struct signalfd_siginfo *si, bool *trace_init, FILE *learn) {
     if (*trace_init) {
         errno = 0;
+#ifdef __x86_64__
         long syscall = ptrace(PTRACE_PEEKUSER, si->ssi_pid, sizeof(long)*ORIG_RAX);
+#else
+        long syscall = ptrace(PTRACE_PEEKUSER, si->ssi_pid, sizeof(long)*ORIG_EAX);
+#endif
         if (errno) err(EXIT_FAILURE, "ptrace");
         char *name = seccomp_syscall_resolve_num_arch(SCMP_ARCH_NATIVE, (int)syscall);
 
