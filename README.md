@@ -24,7 +24,7 @@ Playpen is a secure application sandbox built with modern Linux sandboxing featu
 # Example
 
     # create a chroot
-    mkdir -p sandbox/dev/shm
+    mkdir sandbox
     pacstrap -cd sandbox
 
     # run `ls -l` in the sandbox and create a system call whitelist

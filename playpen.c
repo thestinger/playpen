@@ -537,11 +537,22 @@ int main(int argc, char **argv) {
         if (mount_proc) {
             mountx(NULL, "proc", "proc", MS_NOSUID|MS_NOEXEC|MS_NODEV, NULL);
         }
+
         if (mount_dev) {
             mountx(NULL, "dev", "devtmpfs", MS_NOSUID|MS_NOEXEC, NULL);
         }
-        mountx(NULL, "dev/shm", "tmpfs", MS_NOSUID|MS_NODEV, NULL);
-        mountx(NULL, "tmp", "tmpfs", MS_NOSUID|MS_NODEV, NULL);
+
+        if (mount(NULL, "dev/shm", "tmpfs", MS_NOSUID|MS_NODEV, NULL) == -1) {
+            if (errno != ENOENT) {
+                err(EXIT_FAILURE, "mounting /dev/shm failed");
+            }
+        }
+
+        if (mount(NULL, "tmp", "tmpfs", MS_NOSUID|MS_NODEV, NULL) == -1) {
+            if (errno != ENOENT) {
+                err(EXIT_FAILURE, "mounting /tmp failed");
+            }
+        }
 
         bind_list_apply(binds);
 
