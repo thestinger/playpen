@@ -50,6 +50,12 @@ __attribute__((format(printf, 2, 3))) static bool check_eagain(intmax_t rc, cons
     return rc == -1 && errno == EAGAIN;
 }
 
+static char *join_path(const char *left, const char *right) {
+    char *dst;
+    check_posix(asprintf(&dst, "%s/%s", left, right), "asprintf");
+    return dst;
+}
+
 static void mountx(const char *source, const char *target, const char *filesystemtype,
                    unsigned long mountflags, const void *data) {
     check_posix(mount(source, target, filesystemtype, mountflags, data),
@@ -73,10 +79,9 @@ static struct bind_list *bind_list_alloc(const char *arg, bool read_only) {
     return next;
 }
 
-static void bind_list_apply(struct bind_list *list) {
+static void bind_list_apply(const char *root, struct bind_list *list) {
     for (; list; list = list->next) {
-        char *dst;
-        check_posix(asprintf(&dst, "./%s", list->arg), "asprintf");
+        char *dst = join_path(root, list->arg);
         mountx(list->arg, dst, "bind", MS_BIND|MS_REC, NULL);
         if (list->read_only)
             mountx(list->arg, dst, "bind", MS_BIND|MS_REMOUNT|MS_RDONLY|MS_REC, NULL);
@@ -524,30 +529,38 @@ int main(int argc, char **argv) {
         // re-mount as read-only
         mountx(root, root, "bind", MS_BIND|MS_REMOUNT|MS_RDONLY|MS_REC, NULL);
 
-        // preserve a reference to the target directory
-        check_posix(chdir(root), "chdir");
-
         if (mount_proc) {
-            mountx(NULL, "proc", "proc", MS_NOSUID|MS_NOEXEC|MS_NODEV, NULL);
+            char *mnt = join_path(root, "proc");
+            mountx(NULL, mnt, "proc", MS_NOSUID|MS_NOEXEC|MS_NODEV, NULL);
+            free(mnt);
         }
 
         if (mount_dev) {
-            mountx(NULL, "dev", "devtmpfs", MS_NOSUID|MS_NOEXEC, NULL);
+            char *mnt = join_path(root, "dev");
+            mountx(NULL, mnt, "devtmpfs", MS_NOSUID|MS_NOEXEC, NULL);
+            free(mnt);
         }
 
-        if (mount(NULL, "dev/shm", "tmpfs", MS_NOSUID|MS_NODEV, NULL) == -1) {
+        char *shm = join_path(root, "dev/shm");
+        if (mount(NULL, shm, "tmpfs", MS_NOSUID|MS_NODEV, NULL) == -1) {
             if (errno != ENOENT) {
                 err(EXIT_FAILURE, "mounting /dev/shm failed");
             }
         }
+        free(shm);
 
-        if (mount(NULL, "tmp", "tmpfs", MS_NOSUID|MS_NODEV, NULL) == -1) {
+        char *tmp = join_path(root, "tmp");
+        if (mount(NULL, tmp, "tmpfs", MS_NOSUID|MS_NODEV, NULL) == -1) {
             if (errno != ENOENT) {
                 err(EXIT_FAILURE, "mounting /tmp failed");
             }
         }
+        free(tmp);
 
-        bind_list_apply(binds);
+        bind_list_apply(root, binds);
+
+        // preserve a reference to the target directory
+        check_posix(chdir(root), "chdir");
 
         // make the working directory into the root of the mount namespace
         mountx(".", "/", NULL, MS_MOVE, NULL);
