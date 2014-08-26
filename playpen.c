@@ -212,8 +212,8 @@ _Noreturn static void usage(FILE *out) {
           " -v, --version               display version\n"
           " -p, --mount-proc            mount /proc in the container\n"
           "     --mount-dev             mount /dev as devtmpfs in the container\n"
-          "     --bind                  bind mount a read-only directory in the container\n"
-          "     --bind-rw               bind mount a directory in the container\n"
+          " -b, --bind                  bind mount a read-only directory in the container\n"
+          " -B, --bind-rw               bind mount a directory in the container\n"
           " -u, --user=USER             the user to run the program as\n"
           " -n, --hostname=NAME         the hostname to set the container to\n"
           " -t, --timeout=INTEGER       how long the container is allowed to run\n"
@@ -351,8 +351,8 @@ int main(int argc, char **argv) {
         { "version",       no_argument,       0, 'v' },
         { "mount-proc",    no_argument,       0, 'p' },
         { "mount-dev",     no_argument,       0, 0x100 },
-        { "bind",          required_argument, 0, 0x101 },
-        { "bind-rw",       required_argument, 0, 0x102 },
+        { "bind",          required_argument, 0, 'b' },
+        { "bind-rw",       required_argument, 0, 'B' },
         { "user",          required_argument, 0, 'u' },
         { "hostname",      required_argument, 0, 'n' },
         { "timeout",       required_argument, 0, 't' },
@@ -381,7 +381,7 @@ int main(int argc, char **argv) {
         case 0x100:
             mount_dev = true;
             break;
-        case 0x101:
+        case 'b':
             if (binds) {
                 binds_tail->next = bind_list_alloc(optarg, true);
                 binds_tail = binds_tail->next;
@@ -389,7 +389,7 @@ int main(int argc, char **argv) {
                 binds = binds_tail = bind_list_alloc(optarg, true);
             }
             break;
-        case 0x102:
+        case 'B':
             if (binds) {
                 binds_tail->next = bind_list_alloc(optarg, false);
                 binds_tail = binds_tail->next;
