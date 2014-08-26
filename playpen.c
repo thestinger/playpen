@@ -382,19 +382,12 @@ int main(int argc, char **argv) {
             mount_dev = true;
             break;
         case 'b':
-            if (binds) {
-                binds_tail->next = bind_list_alloc(optarg, true);
-                binds_tail = binds_tail->next;
-            } else {
-                binds = binds_tail = bind_list_alloc(optarg, true);
-            }
-            break;
         case 'B':
             if (binds) {
-                binds_tail->next = bind_list_alloc(optarg, false);
+                binds_tail->next = bind_list_alloc(optarg, opt == 'b');
                 binds_tail = binds_tail->next;
             } else {
-                binds = binds_tail = bind_list_alloc(optarg, false);
+                binds = binds_tail = bind_list_alloc(optarg, opt == 'b');
             }
             break;
         case 'u':
