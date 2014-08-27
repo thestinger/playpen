@@ -273,6 +273,7 @@ static void do_trace(const struct signalfd_siginfo *si, bool *trace_init, FILE *
 #endif
         if (errno) err(EXIT_FAILURE, "ptrace");
         char *name = seccomp_syscall_resolve_num_arch(SCMP_ARCH_NATIVE, (int)syscall);
+        if (!name) errx(EXIT_FAILURE, "seccomp_syscall_resolve_num_arch");
 
         rewind(learn);
         char line[SYSCALL_NAME_MAX];
