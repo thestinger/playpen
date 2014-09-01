@@ -371,7 +371,7 @@ int main(int argc, char **argv) {
     };
 
     for (;;) {
-        int opt = getopt_long(argc, argv, "hvpu:r:n:t:m:d:s:S:l:", opts, NULL);
+        int opt = getopt_long(argc, argv, "hvpb:B:u:n:t:m:d:s:S:l:", opts, NULL);
         if (opt == -1)
             break;
 
