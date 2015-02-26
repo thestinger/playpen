@@ -82,9 +82,11 @@ static struct bind_list *bind_list_alloc(const char *arg, bool read_only) {
 static void bind_list_apply(const char *root, struct bind_list *list) {
     for (; list; list = list->next) {
         char *dst = join_path(root, list->arg);
-        mountx(list->arg, dst, "bind", MS_BIND|MS_REC, NULL);
+        // Only use MS_REC with writable mounts to work around a kernel bug:
+        // https://bugzilla.kernel.org/show_bug.cgi?id=24912
+        mountx(list->arg, dst, "bind", MS_BIND | (list->read_only ? 0 : MS_REC), NULL);
         if (list->read_only)
-            mountx(list->arg, dst, "bind", MS_BIND|MS_REMOUNT|MS_RDONLY|MS_REC, NULL);
+            mountx(list->arg, dst, "bind", MS_BIND|MS_REMOUNT|MS_RDONLY, NULL);
         free(dst);
     }
 }
