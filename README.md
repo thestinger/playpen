@@ -36,5 +36,5 @@ Playpen is a secure application sandbox built with modern Linux sandboxing featu
 # Dependencies
 
 * Linux 3.8 or later
-* [libseccomp](http://sourceforge.net/projects/libseccomp/) 2.1.1 or later
+* [libseccomp](https://github.com/seccomp/libseccomp) 2.1.1 or later
 * systemd
