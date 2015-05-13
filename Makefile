@@ -14,7 +14,9 @@ ifeq ($(CC), clang)
 		  -Wno-shift-sign-overflow \
 		  -Wno-padded \
 		  -Wno-disabled-macro-expansion \
-		  -Wno-assign-enum
+		  -Wno-assign-enum \
+		  -Wno-reserved-id-macro \
+		  -Wno-cast-qual
 else
 	CFLAGS += -Wall -Wextra
 endif
