@@ -193,15 +193,11 @@ static void epoll_add(int epoll_fd, int fd, uint32_t events) {
     check_posix(epoll_ctl(epoll_fd, EPOLL_CTL_ADD, fd, &event), "epoll_ctl");
 }
 
-// This could often use `splice`, but it will not always work with `stdout` and `stderr`.
-static void copy_pipe_to(int in_fd, int out_fd) {
-    ssize_t n;
-    do {
-        uint8_t buffer[BUFSIZ];
-        n = read(in_fd, buffer, sizeof buffer);
-        if (check_eagain(n, "read")) return;
-        check_posix(write(out_fd, buffer, (size_t)n), "write");
-    } while (n != 0);
+static void copy_to_stdstream(int in_fd, int out_fd) {
+    uint8_t buffer[BUFSIZ];
+    ssize_t n = read(in_fd, buffer, sizeof buffer);
+    if (check_eagain(n, "read")) return;
+    check_posix(write(out_fd, buffer, (size_t)n), "write");
 }
 
 static int get_syscall_nr(const char *name) {
@@ -668,9 +664,9 @@ int main(int argc, char **argv) {
                 } else if (evt->data.fd == sig_fd) {
                     handle_signal(sig_fd, connection, unit_name, &trace_init, learn);
                 } else if (evt->data.fd == pipe_out[0]) {
-                    copy_pipe_to(pipe_out[0], STDOUT_FILENO);
+                    copy_to_stdstream(pipe_out[0], STDOUT_FILENO);
                 } else if (evt->data.fd == pipe_err[0]) {
-                    copy_pipe_to(pipe_err[0], STDERR_FILENO);
+                    copy_to_stdstream(pipe_err[0], STDERR_FILENO);
                 } else if (evt->data.fd == STDIN_FILENO) {
                     stdin_bytes_read = read(STDIN_FILENO, stdin_buffer, sizeof stdin_buffer);
                     check_posix(stdin_bytes_read, "read");
