@@ -4,19 +4,14 @@ PREFIX = /usr/local
 CC = $(shell echo $${CC:-clang})
 CFLAGS += -std=c11 -D_GNU_SOURCE -O2 \
 	  -fPIE -fstack-protector-strong \
-	  -DVERSION=\"$(shell git describe)\" $(shell pkg-config --cflags gio-2.0)
-LDLIBS = -lseccomp $(shell pkg-config --libs gio-2.0) -lsystemd
+	  -DVERSION=\"$(shell git describe)\"
+LDLIBS = -lseccomp -lsystemd
 LDFLAGS += -pie -Wl,--as-needed,-z,relro,-z,now
 
 ifeq ($(CC), clang)
 	CFLAGS += -Weverything \
-		  -Wno-documentation \
-		  -Wno-shift-sign-overflow \
 		  -Wno-padded \
-		  -Wno-disabled-macro-expansion \
-		  -Wno-assign-enum \
-		  -Wno-reserved-id-macro \
-		  -Wno-cast-qual
+		  -Wno-disabled-macro-expansion
 else
 	CFLAGS += -Wall -Wextra
 endif

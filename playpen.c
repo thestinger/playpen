@@ -25,8 +25,8 @@
 #include <sys/timerfd.h>
 #include <sys/reg.h>
 
-#include <gio/gio.h>
 #include <seccomp.h>
+#include <systemd/sd-bus.h>
 #include <systemd/sd-login.h>
 
 #define SYSCALL_NAME_MAX 30
@@ -103,13 +103,6 @@ static const char *const systemd_bus_name = "org.freedesktop.systemd1";
 static const char *const systemd_path_name = "/org/freedesktop/systemd1";
 static const char *const manager_interface = "org.freedesktop.systemd1.Manager";
 
-static GDBusConnection *get_system_bus() {
-    GError *error = NULL;
-    GDBusConnection *connection = g_bus_get_sync(G_BUS_TYPE_SYSTEM, NULL, &error);
-    if (error) errx(EXIT_FAILURE, "%s", error->message);
-    return connection;
-}
-
 static void wait_for_unit(pid_t child_pid, const char *expected_name) {
     for (;;) {
         char *unit;
@@ -120,72 +113,68 @@ static void wait_for_unit(pid_t child_pid, const char *expected_name) {
     }
 }
 
-static void start_scope_unit(GDBusConnection *connection, pid_t child_pid, long memory_limit,
+static void start_scope_unit(sd_bus *connection, pid_t child_pid, long memory_limit,
                              char *devices, const char *unit_name) {
-    GVariantBuilder *pids = g_variant_builder_new(G_VARIANT_TYPE("au"));
-    g_variant_builder_add(pids, "u", child_pid);
+    sd_bus_message *message = NULL;
+    check(sd_bus_message_new_method_call(connection, &message, systemd_bus_name, systemd_path_name,
+                                         manager_interface, "StartTransientUnit"));
 
-    GVariantBuilder *allowed = g_variant_builder_new(G_VARIANT_TYPE("a(ss)"));
+    check(sd_bus_message_append(message, "ss", unit_name, "fail"));
+    check(sd_bus_message_open_container(message, 'a', "(sv)"));
+    check(sd_bus_message_append(message, "(sv)", "PIDs", "au", 1, child_pid));
+    check(sd_bus_message_append(message, "(sv)", "Description", "s",
+                                "Playpen application sandbox"));
+    check(sd_bus_message_append(message, "(sv)", "MemoryLimit", "t",
+                                1024ULL * 1024ULL * (unsigned long long)memory_limit));
+    check(sd_bus_message_append(message, "(sv)", "DevicePolicy", "s", "strict"));
 
     if (devices) {
+        check(sd_bus_message_open_container(message, 'r', "sv"));
+        check(sd_bus_message_append(message, "s", "DeviceAllow"));
+        check(sd_bus_message_open_container(message, 'v', "a(ss)"));
+        check(sd_bus_message_open_container(message, 'a', "(ss)"));
+
         for (char *s_ptr = devices, *saveptr; ; s_ptr = NULL) {
             const char *device = strtok_r(s_ptr, ",", &saveptr);
             if (!device) break;
             char *split = strchr(device, ':');
             if (!split) errx(EXIT_FAILURE, "invalid device parameter `%s`", device);
             *split = '\0';
-            g_variant_builder_add(allowed, "(ss)", device, split + 1);
+            sd_bus_message_append(message, "(ss)", device, split + 1);
         }
+
+        check(sd_bus_message_close_container(message));
+        check(sd_bus_message_close_container(message));
+        check(sd_bus_message_close_container(message));
     }
 
-    GVariantBuilder *properties = g_variant_builder_new(G_VARIANT_TYPE("a(sv)"));
-    g_variant_builder_add(properties, "(sv)", "Description",
-                          g_variant_new("s", "Playpen application sandbox"));
-    g_variant_builder_add(properties, "(sv)", "PIDs", g_variant_new("au", pids));
-    g_variant_builder_add(properties, "(sv)", "MemoryLimit",
-                          g_variant_new("t", 1024ULL * 1024ULL * (unsigned long long)memory_limit));
-    g_variant_builder_add(properties, "(sv)", "DevicePolicy", g_variant_new("s", "strict"));
-    g_variant_builder_add(properties, "(sv)", "DeviceAllow", g_variant_new("a(ss)", allowed));
-    g_variant_builder_add(properties, "(sv)", "CPUAccounting", g_variant_new("b", TRUE));
-    g_variant_builder_add(properties, "(sv)", "BlockIOAccounting", g_variant_new("b", TRUE));
+    check(sd_bus_message_append(message, "(sv)", "CPUAccounting", "b", 1));
+    check(sd_bus_message_append(message, "(sv)", "BlockIOAccounting", "b", 1));
+    check(sd_bus_message_close_container(message));
+    check(sd_bus_message_append(message, "a(sa(sv))", 0));
 
-    GError *error = NULL;
-    GVariant *reply = g_dbus_connection_call_sync(connection, systemd_bus_name, systemd_path_name,
-                                                  manager_interface, "StartTransientUnit",
-                                                  g_variant_new("(ssa(sv)a(sa(sv)))",
-                                                                unit_name,
-                                                                "fail",
-                                                                properties,
-                                                                NULL),
-                                                  G_VARIANT_TYPE("(o)"),
-                                                  G_DBUS_CALL_FLAGS_NONE, -1, NULL, &error);
-    if (error) errx(EXIT_FAILURE, "%s", error->message);
-    g_variant_unref(reply);
+    sd_bus_error error = SD_BUS_ERROR_NULL;
+    int rc = sd_bus_call(connection, message, 0, &error, NULL);
+    if (rc < 0) errx(EXIT_FAILURE, "%s",
+                     sd_bus_error_is_set(&error) ? error.message : strerror(-rc));
+    sd_bus_message_unref(message);
+
     wait_for_unit(child_pid, unit_name);
 }
 
-// NoSuchUnit errors are expected as the contained processes can die at any point.
-static bool is_unexpected_stop_unit_error(GError *error) {
-    if (!g_dbus_error_is_remote_error(error)) return false;
-    char *name = g_dbus_error_get_remote_error(error);
-    bool ret = strcmp(name, "org.freedesktop.systemd1.NoSuchUnit");
-    g_free(name);
-    return ret;
-}
-
-static void stop_scope_unit(GDBusConnection *connection, const char *unit_name) {
-    GError *error = NULL;
-    GVariant *reply = g_dbus_connection_call_sync(connection, systemd_bus_name, systemd_path_name,
-                                                  manager_interface, "StopUnit",
-                                                  g_variant_new("(ss)", unit_name, "fail"),
-                                                  G_VARIANT_TYPE("(o)"),
-                                                  G_DBUS_CALL_FLAGS_NONE, -1, NULL, &error);
-    if (error) {
-        if (is_unexpected_stop_unit_error(error))
-            errx(EXIT_FAILURE, "%s", error->message);
-        g_error_free(error);
-    } else
-        g_variant_unref(reply);
+static void stop_scope_unit(sd_bus *connection, const char *unit_name) {
+    sd_bus_error error = SD_BUS_ERROR_NULL;
+    int rc = sd_bus_call_method(connection, systemd_bus_name, systemd_path_name, manager_interface,
+                                "StopUnit", &error, NULL, "ss", unit_name, "fail");
+    if (rc < 0) {
+        if (sd_bus_error_is_set(&error)) {
+            // NoSuchUnit errors are expected as the contained processes can die at any point.
+            if (strcmp(error.name, "org.freedesktop.systemd1.NoSuchUnit"))
+                errx(EXIT_FAILURE, "%s", error.message);
+            sd_bus_error_free(&error);
+        } else
+            errx(EXIT_FAILURE, "%s", strerror(-rc));
+    }
 }
 
 static void epoll_add(int epoll_fd, int fd, uint32_t events) {
@@ -295,7 +284,7 @@ static void do_trace(const struct signalfd_siginfo *si, bool *trace_init, FILE *
     check_posix(ptrace(PTRACE_CONT, si->ssi_pid, 0, 0), "ptrace");
 }
 
-static void handle_signal(int sig_fd, GDBusConnection *connection, const char *unit_name,
+static void handle_signal(int sig_fd, sd_bus *connection, const char *unit_name,
                           bool *trace_init, FILE *learn) {
     struct signalfd_siginfo si;
     ssize_t bytes_r = read(sig_fd, &si, sizeof(si));
@@ -334,8 +323,6 @@ static void handle_signal(int sig_fd, GDBusConnection *connection, const char *u
 }
 
 int main(int argc, char **argv) {
-    g_log_set_always_fatal(G_LOG_LEVEL_WARNING | G_LOG_LEVEL_CRITICAL);
-
     prevent_leaked_file_descriptors();
 
     bool mount_proc = false;
@@ -613,7 +600,8 @@ int main(int argc, char **argv) {
         if (!learn) err(EXIT_FAILURE, "fopen");
     }
 
-    GDBusConnection *connection = get_system_bus();
+    sd_bus *connection;
+    check(sd_bus_open_system(&connection));
 
     char unit_name[100];
     snprintf(unit_name, sizeof unit_name, "playpen-%u.scope", getpid());
