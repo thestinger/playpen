@@ -18,3 +18,8 @@ playpen: playpen.c
 
 install: playpen
 	install -Dm755 $< $(DESTDIR)$(PREFIX)/bin/$<
+
+uninstall:
+	rm $(DESTDIR)$(PREFIX)/bin/playpen
+
+.PHONY: install uninstall
