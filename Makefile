@@ -3,7 +3,7 @@ PREFIX = /usr/local
 # use clang as the fallback instead of cc
 CC = $(shell echo $${CC:-clang})
 CFLAGS += -std=c11 -D_GNU_SOURCE -O2 \
-	  -fPIE -fstack-protector-strong \
+	  -D_FORTIFY_SOURCE=2 -fPIE -fstack-check -fstack-protector-strong \
 	  -DVERSION=\"$(shell git describe)\"
 LDLIBS = -lseccomp -lsystemd
 LDFLAGS += -pie -Wl,--as-needed,-z,relro,-z,now
