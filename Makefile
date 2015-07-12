@@ -1,7 +1,5 @@
 PREFIX = /usr/local
 
-# use clang as the fallback instead of cc
-CC = $(shell echo $${CC:-clang})
 CFLAGS += -std=c11 -D_GNU_SOURCE -O2 \
 	  -D_FORTIFY_SOURCE=2 -fPIE -fstack-check -fstack-protector-strong \
 	  -DVERSION=\"$(shell git describe)\"
