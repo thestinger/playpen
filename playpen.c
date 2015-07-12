@@ -24,6 +24,7 @@
 #include <sys/types.h>
 #include <sys/timerfd.h>
 #include <sys/reg.h>
+#include <sys/wait.h>
 
 #include <seccomp.h>
 #include <systemd/sd-bus.h>
@@ -251,37 +252,50 @@ static long strtolx_positive(const char *s, const char *what) {
 }
 
 static void do_trace(const struct signalfd_siginfo *si, bool *trace_init, FILE *learn) {
+    int status;
+    if (waitpid((pid_t)si->ssi_pid, &status, WNOHANG) != (pid_t)si->ssi_pid)
+        errx(EXIT_FAILURE, "waitpid");
+
+    if (WIFEXITED(status) || WIFSIGNALED(status) || !WIFSTOPPED(status))
+        errx(EXIT_FAILURE, "unexpected ptrace event");
+
+    int inject_signal = 0;
     if (*trace_init) {
-        errno = 0;
+        int signal = WSTOPSIG(status);
+        if (signal != SIGTRAP || !(status & PTRACE_EVENT_SECCOMP))
+            inject_signal = signal;
+        else {
+            errno = 0;
 #ifdef __x86_64__
-        long syscall = ptrace(PTRACE_PEEKUSER, si->ssi_pid, sizeof(long)*ORIG_RAX);
+            long syscall = ptrace(PTRACE_PEEKUSER, si->ssi_pid, sizeof(long)*ORIG_RAX);
 #else
-        long syscall = ptrace(PTRACE_PEEKUSER, si->ssi_pid, sizeof(long)*ORIG_EAX);
+            long syscall = ptrace(PTRACE_PEEKUSER, si->ssi_pid, sizeof(long)*ORIG_EAX);
 #endif
-        if (errno) err(EXIT_FAILURE, "ptrace");
-        char *name = seccomp_syscall_resolve_num_arch(SCMP_ARCH_NATIVE, (int)syscall);
-        if (!name) errx(EXIT_FAILURE, "seccomp_syscall_resolve_num_arch");
+            if (errno) err(EXIT_FAILURE, "ptrace");
+            char *name = seccomp_syscall_resolve_num_arch(SCMP_ARCH_NATIVE, (int)syscall);
+            if (!name) errx(EXIT_FAILURE, "seccomp_syscall_resolve_num_arch");
 
-        rewind(learn);
-        char line[SYSCALL_NAME_MAX];
-        while (fgets(line, sizeof line, learn)) {
-            char *pos;
-            if ((pos = strchr(line, '\n'))) *pos = '\0';
-            if (!strcmp(name, line)) {
-                name = NULL;
-                break;
+            rewind(learn);
+            char line[SYSCALL_NAME_MAX];
+            while (fgets(line, sizeof line, learn)) {
+                char *pos;
+                if ((pos = strchr(line, '\n'))) *pos = '\0';
+                if (!strcmp(name, line)) {
+                    name = NULL;
+                    break;
+                }
             }
-        }
 
-        if (name) {
-            fprintf(learn, "%s\n", name);
-            free(name);
+            if (name) {
+                fprintf(learn, "%s\n", name);
+                free(name);
+            }
         }
     } else {
         check_posix(ptrace(PTRACE_SETOPTIONS, si->ssi_pid, 0, PTRACE_O_TRACESECCOMP), "ptrace");
         *trace_init = true;
     }
-    check_posix(ptrace(PTRACE_CONT, si->ssi_pid, 0, 0), "ptrace");
+    check_posix(ptrace(PTRACE_CONT, si->ssi_pid, 0, inject_signal), "ptrace");
 }
 
 static void handle_signal(int sig_fd, sd_bus *connection, const char *unit_name,
