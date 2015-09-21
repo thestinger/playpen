@@ -459,14 +459,13 @@ int main(int argc, char **argv) {
     int epoll_fd = epoll_create1(EPOLL_CLOEXEC);
     check_posix(epoll_fd, "epoll_create1");
 
-    sigset_t mask;
+    sigset_t mask, old_mask;
     sigemptyset(&mask);
     sigaddset(&mask, SIGCHLD);
     sigaddset(&mask, SIGHUP);
     sigaddset(&mask, SIGINT);
     sigaddset(&mask, SIGTERM);
-
-    check_posix(sigprocmask(SIG_BLOCK, &mask, NULL), "sigprocmask");
+    check_posix(sigprocmask(SIG_BLOCK, &mask, &old_mask), "sigprocmask");
 
     int sig_fd = signalfd(-1, &mask, SFD_CLOEXEC);
     check_posix(sig_fd, "signalfd");
@@ -590,6 +589,8 @@ int main(int argc, char **argv) {
         check_posix(initgroups(username, pw->pw_gid), "initgroups");
         check_posix(setresgid(pw->pw_gid, pw->pw_gid, pw->pw_gid), "setresgid");
         check_posix(setresuid(pw->pw_uid, pw->pw_uid, pw->pw_uid), "setresuid");
+
+        check_posix(sigprocmask(SIG_SETMASK, &old_mask, NULL), "sigprocmask");
 
         char path[] = "PATH=/usr/local/bin:/usr/bin:/bin";
         char *env[] = {path, NULL, NULL, NULL, NULL};
