@@ -185,7 +185,7 @@ static void epoll_add(int epoll_fd, int fd, uint32_t events) {
 
 static void copy_to_stdstream(int in_fd, int out_fd) {
     uint8_t buffer[BUFSIZ];
-    ssize_t n = read(in_fd, buffer, sizeof buffer);
+    ssize_t n = read(in_fd, buffer, sizeof(buffer));
     if (check_eagain(n, "read")) return;
     check_posix(write(out_fd, buffer, (size_t)n), "write");
 }
@@ -267,9 +267,9 @@ static void do_trace(const struct signalfd_siginfo *si, bool *trace_init, FILE *
         else {
             errno = 0;
 #ifdef __x86_64__
-            long syscall = ptrace(PTRACE_PEEKUSER, si->ssi_pid, sizeof(long)*ORIG_RAX);
+            long syscall = ptrace(PTRACE_PEEKUSER, si->ssi_pid, sizeof(long) * ORIG_RAX);
 #else
-            long syscall = ptrace(PTRACE_PEEKUSER, si->ssi_pid, sizeof(long)*ORIG_EAX);
+            long syscall = ptrace(PTRACE_PEEKUSER, si->ssi_pid, sizeof(long) * ORIG_EAX);
 #endif
             if (errno) err(EXIT_FAILURE, "ptrace");
             char *name = seccomp_syscall_resolve_num_arch(SCMP_ARCH_NATIVE, (int)syscall);
@@ -277,7 +277,7 @@ static void do_trace(const struct signalfd_siginfo *si, bool *trace_init, FILE *
 
             rewind(learn);
             char line[SYSCALL_NAME_MAX];
-            while (fgets(line, sizeof line, learn)) {
+            while (fgets(line, sizeof(line), learn)) {
                 char *pos;
                 if ((pos = strchr(line, '\n'))) *pos = '\0';
                 if (!strcmp(name, line)) {
@@ -438,7 +438,7 @@ int main(int argc, char **argv) {
         char name[SYSCALL_NAME_MAX];
         FILE *file = fopen(syscalls_file, "r");
         if (!file) err(EXIT_FAILURE, "failed to open syscalls file: %s", syscalls_file);
-        while (fgets(name, sizeof name, file)) {
+        while (fgets(name, sizeof(name), file)) {
             char *pos;
             if ((pos = strchr(name, '\n'))) *pos = '\0';
             check(seccomp_rule_add(ctx, SCMP_ACT_ALLOW, get_syscall_nr(name), 0));
@@ -515,7 +515,7 @@ int main(int argc, char **argv) {
         // Wait until the scope unit is set up before moving on. This also ensures that the parent
         // didn't die before `prctl` was called.
         uint8_t ready;
-        check_posix(read(STDIN_FILENO, &ready, sizeof ready), "read");
+        check_posix(read(STDIN_FILENO, &ready, sizeof(ready)), "read");
 
         check_posix(sethostname(hostname, strlen(hostname)), "sethostname");
 
@@ -619,7 +619,7 @@ int main(int argc, char **argv) {
     check(sd_bus_open_system(&connection));
 
     char unit_name[100];
-    snprintf(unit_name, sizeof unit_name, "playpen-%u.scope", getpid());
+    snprintf(unit_name, sizeof(unit_name), "playpen-%u.scope", getpid());
 
     start_scope_unit(connection, pid, memory_limit, devices, unit_name);
 
@@ -671,7 +671,7 @@ int main(int argc, char **argv) {
                 } else if (evt->data.fd == pipe_err[0]) {
                     copy_to_stdstream(pipe_err[0], STDERR_FILENO);
                 } else if (evt->data.fd == STDIN_FILENO) {
-                    stdin_bytes_read = read(STDIN_FILENO, stdin_buffer, sizeof stdin_buffer);
+                    stdin_bytes_read = read(STDIN_FILENO, stdin_buffer, sizeof(stdin_buffer));
                     check_posix(stdin_bytes_read, "read");
                     if (stdin_bytes_read == 0) {
                         check_posix(epoll_ctl(epoll_fd, EPOLL_CTL_DEL, STDIN_FILENO, NULL),
@@ -707,13 +707,13 @@ int main(int argc, char **argv) {
                 if (stdin_non_epoll) {
                     // drain stdin until a write would block
                     for (;;) {
-                        stdin_bytes_read = read(STDIN_FILENO, stdin_buffer, sizeof stdin_buffer);
+                        stdin_bytes_read = read(STDIN_FILENO, stdin_buffer, sizeof(stdin_buffer));
                         check_posix(stdin_bytes_read, "read");
                         ssize_t bytes_written = write(pipe_in[1], stdin_buffer,
                                                       (size_t)stdin_bytes_read);
                         if (check_eagain(bytes_written, "write")) break;
 
-                        if (stdin_bytes_read < (ssize_t)sizeof stdin_buffer) {
+                        if (stdin_bytes_read < (ssize_t)sizeof(stdin_buffer)) {
                             close(STDIN_FILENO);
                             close(pipe_in[1]);
                             break;
