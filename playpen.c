@@ -642,7 +642,7 @@ int main(int argc, char **argv) {
     bool trace_init = false;
 
     for (;;) {
-        struct epoll_event events[4];
+        struct epoll_event events[8];
         int n_event = epoll_wait(epoll_fd, events, 4, -1);
 
         if (n_event < 0) {
