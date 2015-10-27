@@ -12,6 +12,8 @@ Playpen is a secure application sandbox built with modern Linux sandboxing featu
 * The memory of all contained processes is limited via the scope unit's memory
   control group. The memory control group will include usage of the private
   tmpfs mounts towards the total.
+* The number of tasks is limited via the scope unit's pids control group in
+  addition to the indirect limitation via the memory control group.
 * System call whitelisting forbids all but the `execve` call by default.
 * Device whitelisting prevents reading, writing or creating any devices by default.
 * The initial process and any forked children can be reliably killed.
