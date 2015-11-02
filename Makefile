@@ -2,6 +2,7 @@ PREFIX = /usr/local
 
 CFLAGS += -std=c11 -D_GNU_SOURCE -O2 \
 	  -D_FORTIFY_SOURCE=2 -fPIE -fstack-check -fstack-protector-strong \
+	  -fsanitize=undefined -fsanitize-undefined-trap-on-error \
 	  -DVERSION=\"$(shell git describe)\"
 LDLIBS = -lseccomp -lsystemd
 LDFLAGS += -pie -Wl,--as-needed,-z,relro,-z,now
