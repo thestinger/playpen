@@ -1,3 +1,4 @@
+#include <limits.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -215,7 +216,7 @@ _Noreturn static void usage(FILE *out) {
           " -T, --tasks-max=LIMIT       max number of tasks in the sandbox (default: 32)\n"
           " -C, --cpu-shares=SHARES     CPU time shares, from 2 to 262144 (default: 1024)\n"
           " -d, --devices=LIST          comma-separated whitelist of devices\n"
-          " -s, --syscalls=LIST         comma-separated whitelist of syscalls\n"
+          " -s, --syscalls=LIST         semicolon-separated whitelist of syscalls\n"
           " -S, --syscalls-file=PATH    whitelist file containing one syscall name per line\n"
           " -l, --learn=PATH            allow unwhitelisted syscalls and append them to a file\n",
           out);
@@ -344,6 +345,88 @@ static void handle_signal(int sig_fd, sd_bus *connection, const char *unit_name,
     }
 }
 
+struct scmp_arg_cmp parse_parameter_check(const char *arg) {
+    char *end;
+    errno = 0;
+    long index = strtol(arg, &end, 10);
+    if (errno || index < 0 || index > UINT_MAX) {
+        errx(EXIT_FAILURE, "invalid system call whitelist: invalid parameter index");
+    }
+
+    // skip whitespace
+    char *cursor = end + strspn(end, " \t");
+
+    enum scmp_compare op;
+    if (!strncmp(cursor, "!=", 2)) {
+        op = SCMP_CMP_NE;
+        cursor += 2;
+    } else if (!strncmp(cursor, "<", 1)) {
+        op = SCMP_CMP_LT;
+        cursor += 1;
+    } else if (!strncmp(cursor, "<=", 2)) {
+        op = SCMP_CMP_LE;
+        cursor += 2;
+    } else if (!strncmp(cursor, "==", 2)) {
+        op = SCMP_CMP_EQ;
+        cursor += 2;
+    } else if (!strncmp(cursor, ">=", 2)) {
+        op = SCMP_CMP_GE;
+        cursor += 2;
+    } else if (!strncmp(cursor, ">", 1)) {
+        op = SCMP_CMP_GT;
+        cursor += 1;
+    } else {
+        errx(EXIT_FAILURE, "invalid system call whitelist operator: %s", cursor);
+    }
+
+    errno = 0;
+    long value = strtol(cursor, &end, 10);
+    if (errno) {
+        errx(EXIT_FAILURE, "invalid system call whitelist: invalid parameter value");
+    }
+
+    // check for trailing garbage
+    if (*(end + strspn(end, " \t")) != '\0') {
+        errx(EXIT_FAILURE, "invalid system call whitelist: invalid parameter rule");
+    }
+
+    return SCMP_CMP(index, op, value);
+}
+
+struct scmp_arg_cmp *parse_parameter_checks(char *arg, unsigned *count) {
+    struct scmp_arg_cmp *args = NULL;
+    unsigned n_args = 0;
+    for (char *s_ptr = arg, *saveptr;; s_ptr = NULL) {
+        char *arg = strtok_r(s_ptr, ",", &saveptr);
+        if (!arg) break;
+        n_args++;
+        if (n_args > 10000) {
+            errx(EXIT_FAILURE, "too many parameter checks");
+        }
+        args = realloc(args, n_args * sizeof(struct scmp_arg_cmp));
+        if (!args) {
+            err(EXIT_FAILURE, "realloc");
+        }
+        args[n_args - 1] = parse_parameter_check(arg);
+    }
+    *count = n_args;
+    if (!n_args) {
+        errx(EXIT_FAILURE, "invalid system call whitelist: colon not followed by arguments");
+    }
+    return args;
+}
+
+void handle_seccomp_rule(scmp_filter_ctx ctx, char *rule) {
+    char *split = strchr(rule, ':');
+    struct scmp_arg_cmp *args = NULL;
+    unsigned n_args = 0;
+    if (split) {
+        *split = '\0';
+        args = parse_parameter_checks(split + 1, &n_args);
+    }
+    check(seccomp_rule_add_array(ctx, SCMP_ACT_ALLOW, get_syscall_nr(rule), n_args, args));
+}
+
 int main(int argc, char **argv) {
     prevent_leaked_file_descriptors();
 
@@ -460,7 +543,7 @@ int main(int argc, char **argv) {
         ssize_t n_read;
         while ((n_read = getline(&line, &len, file)) != -1) {
             if (line[n_read - 1] == '\n') line[n_read - 1] = '\0';
-            check(seccomp_rule_add(ctx, SCMP_ACT_ALLOW, get_syscall_nr(line), 0));
+            handle_seccomp_rule(ctx, line);
         }
         if (ferror(file)) {
             err(EXIT_FAILURE, "getline");
@@ -473,9 +556,9 @@ int main(int argc, char **argv) {
 
     if (syscalls) {
         for (char *s_ptr = syscalls, *saveptr; ; s_ptr = NULL) {
-            const char *syscall = strtok_r(s_ptr, ",", &saveptr);
-            if (!syscall) break;
-            check(seccomp_rule_add(ctx, SCMP_ACT_ALLOW, get_syscall_nr(syscall), 0));
+            char *rule = strtok_r(s_ptr, ";", &saveptr);
+            if (!rule) break;
+            handle_seccomp_rule(ctx, rule);
         }
     }
 
