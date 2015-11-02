@@ -205,7 +205,7 @@ _Noreturn static void usage(FILE *out) {
           " -h, --help                  display this help\n"
           " -v, --version               display version\n"
           " -p, --mount-proc            mount /proc in the container\n"
-          "     --mount-dev             mount /dev as devtmpfs in the container\n"
+          " -D, --mount-dev             mount /dev as devtmpfs in the container\n"
           " -b, --bind                  bind mount a read-only directory in the container\n"
           " -B, --bind-rw               bind mount a directory in the container\n"
           " -u, --user=USER             the user to run the program as\n"
@@ -358,7 +358,7 @@ int main(int argc, char **argv) {
         { "help",          no_argument,       0, 'h' },
         { "version",       no_argument,       0, 'v' },
         { "mount-proc",    no_argument,       0, 'p' },
-        { "mount-dev",     no_argument,       0, 0x100 },
+        { "mount-dev",     no_argument,       0, 'D' },
         { "bind",          required_argument, 0, 'b' },
         { "bind-rw",       required_argument, 0, 'B' },
         { "user",          required_argument, 0, 'u' },
@@ -374,7 +374,7 @@ int main(int argc, char **argv) {
     };
 
     for (;;) {
-        int opt = getopt_long(argc, argv, "hvpb:B:u:n:t:m:T:d:s:S:l:", opts, NULL);
+        int opt = getopt_long(argc, argv, "hvpDb:B:u:n:t:m:T:d:s:S:l:", opts, NULL);
         if (opt == -1)
             break;
 
@@ -387,7 +387,7 @@ int main(int argc, char **argv) {
         case 'p':
             mount_proc = true;
             break;
-        case 0x100:
+        case 'D':
             mount_dev = true;
             break;
         case 'b':
