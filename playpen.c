@@ -359,23 +359,23 @@ int main(int argc, char **argv) {
     const char *learn_name = NULL;
 
     static const struct option opts[] = {
-        { "help",          no_argument,       0, 'h' },
-        { "version",       no_argument,       0, 'v' },
-        { "mount-proc",    no_argument,       0, 'p' },
-        { "mount-dev",     no_argument,       0, 'D' },
-        { "bind",          required_argument, 0, 'b' },
-        { "bind-rw",       required_argument, 0, 'B' },
-        { "user",          required_argument, 0, 'u' },
-        { "hostname",      required_argument, 0, 'n' },
-        { "timeout",       required_argument, 0, 't' },
-        { "memory-limit",  required_argument, 0, 'm' },
-        { "tasks-max",     required_argument, 0, 'T' },
-        { "cpu-shares",    required_argument, 0, 'C' },
-        { "devices",       required_argument, 0, 'd' },
-        { "syscalls",      required_argument, 0, 's' },
-        { "syscalls-file", required_argument, 0, 'S' },
-        { "learn",         required_argument, 0, 'l' },
-        { 0, 0, 0, 0 }
+        { "help",          no_argument,       NULL, 'h' },
+        { "version",       no_argument,       NULL, 'v' },
+        { "mount-proc",    no_argument,       NULL, 'p' },
+        { "mount-dev",     no_argument,       NULL, 'D' },
+        { "bind",          required_argument, NULL, 'b' },
+        { "bind-rw",       required_argument, NULL, 'B' },
+        { "user",          required_argument, NULL, 'u' },
+        { "hostname",      required_argument, NULL, 'n' },
+        { "timeout",       required_argument, NULL, 't' },
+        { "memory-limit",  required_argument, NULL, 'm' },
+        { "tasks-max",     required_argument, NULL, 'T' },
+        { "cpu-shares",    required_argument, NULL, 'C' },
+        { "devices",       required_argument, NULL, 'd' },
+        { "syscalls",      required_argument, NULL, 's' },
+        { "syscalls-file", required_argument, NULL, 'S' },
+        { "learn",         required_argument, NULL, 'l' },
+        { NULL, 0, NULL, 0 }
     };
 
     for (;;) {
