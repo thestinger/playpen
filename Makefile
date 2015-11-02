@@ -12,7 +12,7 @@ ifeq ($(CC), clang)
 		  -Wno-padded \
 		  -Wno-disabled-macro-expansion
 else
-	CFLAGS += -Wall -Wextra
+	CFLAGS += -Wall -Wextra -Wshadow
 endif
 
 playpen: playpen.c

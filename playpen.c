@@ -425,10 +425,10 @@ static struct scmp_arg_cmp parse_parameter_check(const char *arg) {
     return SCMP_CMP(index, op, value);
 }
 
-static struct scmp_arg_cmp *parse_parameter_checks(char *arg, unsigned *count) {
+static struct scmp_arg_cmp *parse_parameter_checks(char *s, unsigned *count) {
     struct scmp_arg_cmp *args = NULL;
     unsigned n_args = 0;
-    for (char *s_ptr = arg, *saveptr;; s_ptr = NULL) {
+    for (char *s_ptr = s, *saveptr;; s_ptr = NULL) {
         char *arg = strtok_r(s_ptr, ",", &saveptr);
         if (!arg) break;
         n_args++;
