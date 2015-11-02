@@ -31,6 +31,12 @@
 #include <systemd/sd-bus.h>
 #include <systemd/sd-login.h>
 
+enum learn {
+    LEARN_NONE,
+    LEARN_FINE,
+    LEARN_COARSE
+};
+
 static void check(int rc) {
     if (rc < 0) errx(EXIT_FAILURE, "%s", strerror(-rc));
 }
@@ -218,7 +224,8 @@ _Noreturn static void usage(FILE *out) {
           " -d, --devices=LIST          comma-separated whitelist of devices\n"
           " -s, --syscalls=LIST         semicolon-separated whitelist of syscalls\n"
           " -S, --syscalls-file=PATH    whitelist file containing one syscall name per line\n"
-          " -l, --learn                 append unwhitelisted syscalls to the whitelist\n",
+          " -l, --learn                 append missing rules to the system call whitelist\n"
+          " -L, --learn-coarse          coarser learning mode without parameter checks\n",
           out);
 
     exit(out == stderr ? EXIT_FAILURE : EXIT_SUCCESS);
@@ -255,7 +262,16 @@ static long strtolx_positive(const char *s, const char *what) {
     return result;
 }
 
-static void do_trace(const struct signalfd_siginfo *si, bool *trace_init, FILE *whitelist) {
+static long trace_a1(pid_t pid) {
+#ifdef __x86_64__
+    return ptrace(PTRACE_PEEKUSER, pid, sizeof(long) * RSI);
+#else
+    return ptrace(PTRACE_PEEKUSER, pid, sizeof(long) * ECX);
+#endif
+}
+
+static void do_trace(const struct signalfd_siginfo *si, bool *trace_init, enum learn learn,
+                     FILE *whitelist) {
     int status;
     if (waitpid((pid_t)si->ssi_pid, &status, WNOHANG) != (pid_t)si->ssi_pid)
         errx(EXIT_FAILURE, "waitpid");
@@ -279,14 +295,25 @@ static void do_trace(const struct signalfd_siginfo *si, bool *trace_init, FILE *
             char *name = seccomp_syscall_resolve_num_arch(SCMP_ARCH_NATIVE, (int)syscall);
             if (!name) errx(EXIT_FAILURE, "seccomp_syscall_resolve_num_arch");
 
+            char *rule = name;
+            if (learn == LEARN_FINE) {
+                if (!strcmp(name, "ioctl")) {
+                    long a1 = trace_a1(si->ssi_pid);
+                    if (asprintf(&rule, "ioctl: 1 == %ld", a1) == -1) {
+                        errx(EXIT_FAILURE, "asprintf");
+                    }
+                    free(name);
+                }
+            }
+
             rewind(whitelist);
             char *line = NULL;
             size_t len = 0;
             ssize_t n_read;
             while ((n_read = getline(&line, &len, whitelist)) != -1) {
                 if (line[n_read - 1] == '\n') line[n_read - 1] = '\0';
-                if (!strcmp(name, line)) {
-                    name = NULL;
+                if (!strcmp(rule, line)) {
+                    rule = NULL;
                     break;
                 }
             }
@@ -295,9 +322,9 @@ static void do_trace(const struct signalfd_siginfo *si, bool *trace_init, FILE *
             }
             free(line);
 
-            if (name) {
-                fprintf(whitelist, "%s\n", name);
-                free(name);
+            if (rule) {
+                fprintf(whitelist, "%s\n", rule);
+                free(rule);
             }
         }
     } else {
@@ -308,7 +335,7 @@ static void do_trace(const struct signalfd_siginfo *si, bool *trace_init, FILE *
 }
 
 static void handle_signal(int sig_fd, sd_bus *connection, const char *unit_name,
-                          bool *trace_init, FILE *whitelist) {
+                          bool *trace_init, enum learn learn, FILE *whitelist) {
     struct signalfd_siginfo si;
     ssize_t bytes_r = read(sig_fd, &si, sizeof(si));
     check_posix(bytes_r, "read");
@@ -338,7 +365,7 @@ static void handle_signal(int sig_fd, sd_bus *connection, const char *unit_name,
         errx(EXIT_FAILURE, "application terminated abnormally with signal %d (%s)",
              si.ssi_status, strsignal(si.ssi_status));
     case CLD_TRAPPED:
-        do_trace(&si, trace_init, whitelist);
+        do_trace(&si, trace_init, learn, whitelist);
     case CLD_STOPPED:
     default:
         break;
@@ -442,7 +469,7 @@ int main(int argc, char **argv) {
     char *devices = NULL;
     char *syscalls = NULL;
     const char *syscalls_file = NULL;
-    bool learn = false;
+    enum learn learn = LEARN_NONE;
 
     static const struct option opts[] = {
         { "help",          no_argument,       NULL, 'h' },
@@ -461,11 +488,12 @@ int main(int argc, char **argv) {
         { "syscalls",      required_argument, NULL, 's' },
         { "syscalls-file", required_argument, NULL, 'S' },
         { "learn",         no_argument,       NULL, 'l' },
+        { "learn-coarse",  no_argument,       NULL, 'L' },
         { NULL, 0, NULL, 0 }
     };
 
     for (;;) {
-        int opt = getopt_long(argc, argv, "hvpDb:B:u:n:t:m:T:C:d:s:S:l", opts, NULL);
+        int opt = getopt_long(argc, argv, "hvpDb:B:u:n:t:m:T:C:d:s:S:lL", opts, NULL);
         if (opt == -1)
             break;
 
@@ -518,14 +546,17 @@ int main(int argc, char **argv) {
             syscalls_file = optarg;
             break;
         case 'l':
-            learn = true;
+            learn = LEARN_FINE;
+            break;
+        case 'L':
+            learn = LEARN_COARSE;
             break;
         default:
             usage(stderr);
         }
     }
 
-    if (learn && !syscalls_file) {
+    if (learn != LEARN_NONE && !syscalls_file) {
         errx(EXIT_FAILURE, "learning mode requires specifying a system call whitelist");
     }
 
@@ -536,12 +567,12 @@ int main(int argc, char **argv) {
     const char *root = argv[optind];
     optind++;
 
-    scmp_filter_ctx ctx = seccomp_init(learn ? SCMP_ACT_TRACE(0) : SCMP_ACT_KILL);
+    scmp_filter_ctx ctx = seccomp_init(learn != LEARN_NONE ? SCMP_ACT_TRACE(0) : SCMP_ACT_KILL);
     if (!ctx) errx(EXIT_FAILURE, "seccomp_init");
 
     FILE *whitelist = NULL;
     if (syscalls_file) {
-        whitelist = fopen(syscalls_file, learn ? "a+e" : "re");
+        whitelist = fopen(syscalls_file, learn != LEARN_NONE ? "a+e" : "re");
         if (!whitelist) err(EXIT_FAILURE, "failed to open syscalls file: %s", syscalls_file);
         char *line = NULL;
         size_t len = 0;
@@ -554,7 +585,7 @@ int main(int argc, char **argv) {
             err(EXIT_FAILURE, "getline");
         }
         free(line);
-        if (!learn) {
+        if (learn == LEARN_NONE) {
             fclose(whitelist);
             whitelist = NULL;
         }
@@ -712,7 +743,9 @@ int main(int argc, char **argv) {
             errx(EXIT_FAILURE, "asprintf");
         }
 
-        if (learn) check_posix(ptrace(PTRACE_TRACEME, 0, NULL, NULL), "ptrace");
+        if (learn != LEARN_NONE) {
+            check_posix(ptrace(PTRACE_TRACEME, 0, NULL, NULL), "ptrace");
+        }
 
         check(seccomp_load(ctx));
         check_posix(execvpe(argv[optind], argv + optind, env), "execvpe");
@@ -771,7 +804,7 @@ int main(int argc, char **argv) {
                     stop_scope_unit(connection, unit_name);
                     return EXIT_FAILURE;
                 } else if (evt->data.fd == sig_fd) {
-                    handle_signal(sig_fd, connection, unit_name, &trace_init, whitelist);
+                    handle_signal(sig_fd, connection, unit_name, &trace_init, learn, whitelist);
                 } else if (evt->data.fd == pipe_out[0]) {
                     copy_to_stdstream(pipe_out[0], STDOUT_FILENO);
                 } else if (evt->data.fd == pipe_err[0]) {
