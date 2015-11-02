@@ -281,10 +281,7 @@ static void do_trace(const struct signalfd_siginfo *si, bool *trace_init, enum l
 
     int inject_signal = 0;
     if (*trace_init) {
-        int signal = WSTOPSIG(status);
-        if (signal != SIGTRAP || !(status & PTRACE_EVENT_SECCOMP))
-            inject_signal = signal;
-        else {
+        if (status >> 8 == (SIGTRAP | PTRACE_EVENT_SECCOMP << 8)) {
             errno = 0;
 #ifdef __x86_64__
             long syscall = ptrace(PTRACE_PEEKUSER, si->ssi_pid, sizeof(long) * ORIG_RAX);
@@ -332,6 +329,8 @@ static void do_trace(const struct signalfd_siginfo *si, bool *trace_init, enum l
                 fprintf(whitelist, "%s\n", rule);
                 free(rule);
             }
+        } else {
+            inject_signal = WSTOPSIG(status);
         }
     } else {
         check_posix(ptrace(PTRACE_SETOPTIONS, si->ssi_pid, 0, PTRACE_O_TRACESECCOMP), "ptrace");
