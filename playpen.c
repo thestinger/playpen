@@ -377,7 +377,7 @@ static void handle_signal(int sig_fd, sd_bus *connection, const char *unit_name,
     }
 }
 
-struct scmp_arg_cmp parse_parameter_check(const char *arg) {
+static struct scmp_arg_cmp parse_parameter_check(const char *arg) {
     char *end;
     errno = 0;
     long index = strtol(arg, &end, 10);
@@ -425,7 +425,7 @@ struct scmp_arg_cmp parse_parameter_check(const char *arg) {
     return SCMP_CMP(index, op, value);
 }
 
-struct scmp_arg_cmp *parse_parameter_checks(char *arg, unsigned *count) {
+static struct scmp_arg_cmp *parse_parameter_checks(char *arg, unsigned *count) {
     struct scmp_arg_cmp *args = NULL;
     unsigned n_args = 0;
     for (char *s_ptr = arg, *saveptr;; s_ptr = NULL) {
@@ -448,7 +448,7 @@ struct scmp_arg_cmp *parse_parameter_checks(char *arg, unsigned *count) {
     return args;
 }
 
-void handle_seccomp_rule(scmp_filter_ctx ctx, char *rule) {
+static void handle_seccomp_rule(scmp_filter_ctx ctx, char *rule) {
     char *split = strchr(rule, ':');
     struct scmp_arg_cmp *args = NULL;
     unsigned n_args = 0;
