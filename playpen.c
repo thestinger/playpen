@@ -303,6 +303,12 @@ static void do_trace(const struct signalfd_siginfo *si, bool *trace_init, enum l
                         errx(EXIT_FAILURE, "asprintf");
                     }
                     free(name);
+                } else if (!strcmp(name, "futex")) {
+                    long a1 = trace_a1(si->ssi_pid);
+                    if (asprintf(&rule, "futex: 1 == %ld", a1) == -1) {
+                        errx(EXIT_FAILURE, "asprintf");
+                    }
+                    free(name);
                 }
             }
 
