@@ -30,7 +30,7 @@ Playpen is a secure application sandbox built with modern Linux sandboxing featu
     pacstrap -cd sandbox
 
     # run `ls -l` in the sandbox and create a system call whitelist
-    playpen sandbox -l whitelist -- ls -l /
+    playpen sandbox -S whitelist -l -- ls -l /
 
     # run it again, enforcing the learned system call whitelist
     playpen sandbox -S whitelist -- ls -l /
