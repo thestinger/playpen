@@ -115,7 +115,8 @@ static void wait_for_unit(pid_t child_pid, const char *expected_name) {
 }
 
 static void start_scope_unit(sd_bus *connection, pid_t child_pid, long memory_limit,
-                             long tasks_max, char *devices, const char *unit_name) {
+                             long tasks_max, long cpu_shares, char *devices,
+                             const char *unit_name) {
     sd_bus_message *message = NULL;
     check(sd_bus_message_new_method_call(connection, &message, systemd_bus_name, systemd_path_name,
                                          manager_interface, "StartTransientUnit"));
@@ -151,6 +152,7 @@ static void start_scope_unit(sd_bus *connection, pid_t child_pid, long memory_li
     }
 
     check(sd_bus_message_append(message, "(sv)", "CPUAccounting", "b", 1));
+    check(sd_bus_message_append(message, "(sv)", "CPUShares", "t", (unsigned long long)cpu_shares));
     check(sd_bus_message_append(message, "(sv)", "BlockIOAccounting", "b", 1));
     check(sd_bus_message_close_container(message));
     check(sd_bus_message_append(message, "a(sa(sv))", 0));
@@ -213,6 +215,7 @@ _Noreturn static void usage(FILE *out) {
           " -t, --timeout=INTEGER       how long the container is allowed to run\n"
           " -m, --memory-limit=LIMIT    the memory limit of the container\n"
           " -T, --tasks-max=LIMIT       max number of tasks in the sandbox (default: 32)\n"
+          " -C, --cpu-shares=SHARES     CPU time shares, from 2 to 262144 (default: 1024)\n"
           " -d, --devices=LIST          comma-separated whitelist of devices\n"
           " -s, --syscalls=LIST         comma-separated whitelist of syscalls\n"
           " -S, --syscalls-file=PATH    whitelist file containing one syscall name per line\n"
@@ -348,6 +351,7 @@ int main(int argc, char **argv) {
     long timeout = 0;
     long memory_limit = 128;
     long tasks_max = 32;
+    long cpu_shares = 1024;
     struct bind_list *binds = NULL, *binds_tail = NULL;
     char *devices = NULL;
     char *syscalls = NULL;
@@ -366,6 +370,7 @@ int main(int argc, char **argv) {
         { "timeout",       required_argument, 0, 't' },
         { "memory-limit",  required_argument, 0, 'm' },
         { "tasks-max",     required_argument, 0, 'T' },
+        { "cpu-shares",    required_argument, 0, 'C' },
         { "devices",       required_argument, 0, 'd' },
         { "syscalls",      required_argument, 0, 's' },
         { "syscalls-file", required_argument, 0, 'S' },
@@ -374,7 +379,7 @@ int main(int argc, char **argv) {
     };
 
     for (;;) {
-        int opt = getopt_long(argc, argv, "hvpDb:B:u:n:t:m:T:d:s:S:l:", opts, NULL);
+        int opt = getopt_long(argc, argv, "hvpDb:B:u:n:t:m:T:C:d:s:S:l:", opts, NULL);
         if (opt == -1)
             break;
 
@@ -413,6 +418,9 @@ int main(int argc, char **argv) {
             break;
         case 'T':
             tasks_max = strtolx_positive(optarg, "tasks limit");
+            break;
+        case 'C':
+            cpu_shares = strtolx_positive(optarg, "CPU shares");
             break;
         case 'd':
             devices = optarg;
@@ -628,7 +636,7 @@ int main(int argc, char **argv) {
     char unit_name[100];
     snprintf(unit_name, sizeof(unit_name), "playpen-%u.scope", getpid());
 
-    start_scope_unit(connection, pid, memory_limit, tasks_max, devices, unit_name);
+    start_scope_unit(connection, pid, memory_limit, tasks_max, cpu_shares, devices, unit_name);
 
     // Inform the child that the scope unit has been created.
     check_posix(write(pipe_in[1], &(uint8_t) { 0 }, 1), "write");
