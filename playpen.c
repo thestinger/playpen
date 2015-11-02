@@ -30,8 +30,6 @@
 #include <systemd/sd-bus.h>
 #include <systemd/sd-login.h>
 
-#define SYSCALL_NAME_MAX 30
-
 static void check(int rc) {
     if (rc < 0) errx(EXIT_FAILURE, "%s", strerror(-rc));
 }
@@ -281,15 +279,20 @@ static void do_trace(const struct signalfd_siginfo *si, bool *trace_init, FILE *
             if (!name) errx(EXIT_FAILURE, "seccomp_syscall_resolve_num_arch");
 
             rewind(learn);
-            char line[SYSCALL_NAME_MAX];
-            while (fgets(line, sizeof(line), learn)) {
-                char *pos;
-                if ((pos = strchr(line, '\n'))) *pos = '\0';
+            char *line = NULL;
+            size_t len = 0;
+            ssize_t n_read;
+            while ((n_read = getline(&line, &len, learn)) != -1) {
+                if (line[n_read - 1] == '\n') line[n_read - 1] = '\0';
                 if (!strcmp(name, line)) {
                     name = NULL;
                     break;
                 }
             }
+            if (ferror(learn)) {
+                err(EXIT_FAILURE, "getline");
+            }
+            free(line);
 
             if (name) {
                 fprintf(learn, "%s\n", name);
@@ -450,14 +453,19 @@ int main(int argc, char **argv) {
     if (!ctx) errx(EXIT_FAILURE, "seccomp_init");
 
     if (syscalls_file) {
-        char name[SYSCALL_NAME_MAX];
         FILE *file = fopen(syscalls_file, "r");
         if (!file) err(EXIT_FAILURE, "failed to open syscalls file: %s", syscalls_file);
-        while (fgets(name, sizeof(name), file)) {
-            char *pos;
-            if ((pos = strchr(name, '\n'))) *pos = '\0';
-            check(seccomp_rule_add(ctx, SCMP_ACT_ALLOW, get_syscall_nr(name), 0));
+        char *line = NULL;
+        size_t len = 0;
+        ssize_t n_read;
+        while ((n_read = getline(&line, &len, file)) != -1) {
+            if (line[n_read - 1] == '\n') line[n_read - 1] = '\0';
+            check(seccomp_rule_add(ctx, SCMP_ACT_ALLOW, get_syscall_nr(line), 0));
         }
+        if (ferror(file)) {
+            err(EXIT_FAILURE, "getline");
+        }
+        free(line);
         fclose(file);
     }
 
