@@ -270,6 +270,22 @@ static long trace_a1(pid_t pid) {
 #endif
 }
 
+static long trace_a2(pid_t pid) {
+#ifdef __x86_64__
+    return ptrace(PTRACE_PEEKUSER, pid, sizeof(long) * RDX);
+#else
+    return ptrace(PTRACE_PEEKUSER, pid, sizeof(long) * EDX);
+#endif
+}
+
+static long trace_a3(pid_t pid) {
+#ifdef __x86_64__
+    return ptrace(PTRACE_PEEKUSER, pid, sizeof(long) * R10);
+#else
+    return ptrace(PTRACE_PEEKUSER, pid, sizeof(long) * ESI);
+#endif
+}
+
 static void do_trace(const struct signalfd_siginfo *si, bool *trace_init, enum learn learn,
                      FILE *whitelist) {
     int status;
@@ -303,6 +319,24 @@ static void do_trace(const struct signalfd_siginfo *si, bool *trace_init, enum l
                 } else if (!strcmp(name, "futex")) {
                     long a1 = trace_a1(si->ssi_pid);
                     if (asprintf(&rule, "futex: 1 == %ld", a1) == -1) {
+                        errx(EXIT_FAILURE, "asprintf");
+                    }
+                    free(name);
+                } else if (!strcmp(name, "madvise")) {
+                    long a2 = trace_a2(si->ssi_pid);
+                    if (asprintf(&rule, "madvise: 2 == %ld", a2) == -1) {
+                        errx(EXIT_FAILURE, "asprintf");
+                    }
+                    free(name);
+                } else if (!strcmp(name, "fadvise64")) {
+                    long a3 = trace_a3(si->ssi_pid);
+                    if (asprintf(&rule, "fadvise64: 3 == %ld", a3) == -1) {
+                        errx(EXIT_FAILURE, "asprintf");
+                    }
+                    free(name);
+                } else if (!strcmp(name, "fadvise64_64")) {
+                    long a1 = trace_a1(si->ssi_pid);
+                    if (asprintf(&rule, "fadvise64_64: 1 == %ld", a1) == -1) {
                         errx(EXIT_FAILURE, "asprintf");
                     }
                     free(name);
