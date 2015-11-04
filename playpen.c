@@ -268,16 +268,34 @@ static const unsigned parameter_register[] = {RDI, RSI, RDX, R10};
 static const unsigned parameter_register[] = {EBX, ECX, EDX, ESI};
 #endif
 
-static void learn_rule1(char **rule, pid_t pid, const char *expected, unsigned parameter) {
-    if (parameter > sizeof(parameter_register) / sizeof(parameter_register[0])) {
+static long get_parameter(pid_t pid, unsigned index) {
+    if (index > sizeof(parameter_register) / sizeof(parameter_register[0])) {
         errx(EXIT_FAILURE, "parameter index too high");
     }
+    return ptrace(PTRACE_PEEKUSER, pid, sizeof(long) * parameter_register[index]);
+}
 
+static void learn_rule1(char **rule, pid_t pid, const char *expected, unsigned parameter) {
     char *name = *rule;
-    long value = ptrace(PTRACE_PEEKUSER, pid, sizeof(long) * parameter_register[parameter]);
+    long value = get_parameter(pid, parameter);
 
     if (!strcmp(name, expected)) {
         if (asprintf(rule, "%s: %u == %ld", name, parameter, value) == -1) {
+            errx(EXIT_FAILURE, "asprintf");
+        }
+        free(name);
+    }
+}
+
+static void learn_rule2(char **rule, pid_t pid, const char *expected, unsigned parameter,
+                        unsigned parameter2) {
+    char *name = *rule;
+    long value = get_parameter(pid, parameter);
+    long value2 = get_parameter(pid, parameter2);
+
+    if (!strcmp(name, expected)) {
+        if (asprintf(rule, "%s: %u == %ld, %u == %ld", name, parameter, value, parameter2,
+                     value2) == -1) {
             errx(EXIT_FAILURE, "asprintf");
         }
         free(name);
@@ -312,8 +330,10 @@ static void do_trace(const struct signalfd_siginfo *si, bool *trace_init, enum l
                 learn_rule1(&rule, si->ssi_pid, "fadvise64_64", 1);
                 learn_rule1(&rule, si->ssi_pid, "fcntl", 1);
                 learn_rule1(&rule, si->ssi_pid, "futex", 1);
+                learn_rule2(&rule, si->ssi_pid, "getsockopt", 1, 2);
                 learn_rule1(&rule, si->ssi_pid, "ioctl", 1);
                 learn_rule1(&rule, si->ssi_pid, "madvise", 2);
+                learn_rule2(&rule, si->ssi_pid, "setsockopt", 1, 2);
             }
 
             rewind(whitelist);
