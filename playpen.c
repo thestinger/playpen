@@ -269,10 +269,10 @@ static const unsigned parameter_register[] = {EBX, ECX, EDX, ESI};
 #endif
 
 static long get_parameter(pid_t pid, unsigned index) {
-    if (index > sizeof(parameter_register) / sizeof(parameter_register[0])) {
-        errx(EXIT_FAILURE, "parameter index too high");
+    if (index < 1 || index > sizeof(parameter_register) / sizeof(parameter_register[0])) {
+        errx(EXIT_FAILURE, "parameter index invalid");
     }
-    return ptrace(PTRACE_PEEKUSER, pid, sizeof(long) * parameter_register[index]);
+    return ptrace(PTRACE_PEEKUSER, pid, sizeof(long) * parameter_register[index - 1]);
 }
 
 static void learn_rule1(char **rule, pid_t pid, const char *expected, unsigned parameter) {
@@ -325,14 +325,14 @@ static void do_trace(const struct signalfd_siginfo *si, bool *trace_init, enum l
             if (!rule) errx(EXIT_FAILURE, "seccomp_syscall_resolve_num_arch");
 
             if (learn == LEARN_FINE) {
-                learn_rule1(&rule, si->ssi_pid, "fadvise64", 3);
-                learn_rule1(&rule, si->ssi_pid, "fadvise64_64", 1);
-                learn_rule1(&rule, si->ssi_pid, "fcntl", 1);
-                learn_rule1(&rule, si->ssi_pid, "futex", 1);
-                learn_rule2(&rule, si->ssi_pid, "getsockopt", 1, 2);
-                learn_rule1(&rule, si->ssi_pid, "ioctl", 1);
-                learn_rule1(&rule, si->ssi_pid, "madvise", 2);
-                learn_rule2(&rule, si->ssi_pid, "setsockopt", 1, 2);
+                learn_rule1(&rule, si->ssi_pid, "fadvise64", 4);
+                learn_rule1(&rule, si->ssi_pid, "fadvise64_64", 2);
+                learn_rule1(&rule, si->ssi_pid, "fcntl", 2);
+                learn_rule1(&rule, si->ssi_pid, "futex", 2);
+                learn_rule2(&rule, si->ssi_pid, "getsockopt", 2, 3);
+                learn_rule1(&rule, si->ssi_pid, "ioctl", 2);
+                learn_rule1(&rule, si->ssi_pid, "madvise", 3);
+                learn_rule2(&rule, si->ssi_pid, "setsockopt", 2, 3);
             }
 
             rewind(whitelist);
@@ -407,9 +407,10 @@ static struct scmp_arg_cmp parse_parameter_check(const char *arg) {
     char *end;
     errno = 0;
     long index = strtol(arg, &end, 10);
-    if (errno || index < 0 || index > UINT_MAX) {
+    if (errno || index < 1 || index > UINT_MAX) {
         errx(EXIT_FAILURE, "invalid system call whitelist: invalid parameter index");
     }
+    index--;
 
     // skip whitespace
     char *cursor = end + strspn(end, " \t");
