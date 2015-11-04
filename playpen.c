@@ -263,16 +263,16 @@ static long strtolx_positive(const char *s, const char *what) {
 }
 
 #ifdef __x86_64__
-static const unsigned parameter_register[] = {RDI, RSI, RDX, R10};
+static const int arg_registers[] = {RDI, RSI, RDX, R10, R8, R9};
 #else
-static const unsigned parameter_register[] = {EBX, ECX, EDX, ESI};
+static const int arg_registers[] = {EBX, ECX, EDX, ESI, EDI, EBP};
 #endif
 
 static long get_parameter(pid_t pid, unsigned index) {
-    if (index < 1 || index > sizeof(parameter_register) / sizeof(parameter_register[0])) {
+    if (index < 1 || index > sizeof(arg_registers) / sizeof(arg_registers[0])) {
         errx(EXIT_FAILURE, "parameter index invalid");
     }
-    return ptrace(PTRACE_PEEKUSER, pid, sizeof(long) * parameter_register[index - 1]);
+    return ptrace(PTRACE_PEEKUSER, pid, sizeof(long) * arg_registers[index - 1]);
 }
 
 static void learn_rule1(char **rule, pid_t pid, const char *expected, unsigned parameter) {
@@ -407,7 +407,7 @@ static struct scmp_arg_cmp parse_parameter_check(const char *arg) {
     char *end;
     errno = 0;
     long index = strtol(arg, &end, 10);
-    if (errno || index < 1 || index > UINT_MAX) {
+    if (errno || index < 1 || (size_t)index > sizeof(arg_registers) / sizeof(arg_registers[0])) {
         errx(EXIT_FAILURE, "invalid system call whitelist: invalid parameter index");
     }
     index--;
