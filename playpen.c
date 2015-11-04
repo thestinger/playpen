@@ -321,10 +321,9 @@ static void do_trace(const struct signalfd_siginfo *si, bool *trace_init, enum l
             long syscall = ptrace(PTRACE_PEEKUSER, si->ssi_pid, sizeof(long) * ORIG_EAX);
 #endif
             if (errno) err(EXIT_FAILURE, "ptrace");
-            char *name = seccomp_syscall_resolve_num_arch(SCMP_ARCH_NATIVE, (int)syscall);
-            if (!name) errx(EXIT_FAILURE, "seccomp_syscall_resolve_num_arch");
+            char *rule = seccomp_syscall_resolve_num_arch(SCMP_ARCH_NATIVE, (int)syscall);
+            if (!rule) errx(EXIT_FAILURE, "seccomp_syscall_resolve_num_arch");
 
-            char *rule = name;
             if (learn == LEARN_FINE) {
                 learn_rule1(&rule, si->ssi_pid, "fadvise64", 3);
                 learn_rule1(&rule, si->ssi_pid, "fadvise64_64", 1);
