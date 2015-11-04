@@ -310,6 +310,7 @@ static void do_trace(const struct signalfd_siginfo *si, bool *trace_init, enum l
             if (learn == LEARN_FINE) {
                 learn_rule1(&rule, si->ssi_pid, "fadvise64", 3);
                 learn_rule1(&rule, si->ssi_pid, "fadvise64_64", 1);
+                learn_rule1(&rule, si->ssi_pid, "fcntl", 1);
                 learn_rule1(&rule, si->ssi_pid, "futex", 1);
                 learn_rule1(&rule, si->ssi_pid, "ioctl", 1);
                 learn_rule1(&rule, si->ssi_pid, "madvise", 2);
