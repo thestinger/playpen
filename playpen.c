@@ -262,28 +262,26 @@ static long strtolx_positive(const char *s, const char *what) {
     return result;
 }
 
-static long trace_a1(pid_t pid) {
 #ifdef __x86_64__
-    return ptrace(PTRACE_PEEKUSER, pid, sizeof(long) * RSI);
+static const unsigned parameter_register[] = {RDI, RSI, RDX, R10};
 #else
-    return ptrace(PTRACE_PEEKUSER, pid, sizeof(long) * ECX);
+static const unsigned parameter_register[] = {EBX, ECX, EDX, ESI};
 #endif
-}
 
-static long trace_a2(pid_t pid) {
-#ifdef __x86_64__
-    return ptrace(PTRACE_PEEKUSER, pid, sizeof(long) * RDX);
-#else
-    return ptrace(PTRACE_PEEKUSER, pid, sizeof(long) * EDX);
-#endif
-}
+static void learn_rule1(char **rule, pid_t pid, const char *expected, unsigned parameter) {
+    if (parameter > sizeof(parameter_register) / sizeof(parameter_register[0])) {
+        errx(EXIT_FAILURE, "parameter index too high");
+    }
 
-static long trace_a3(pid_t pid) {
-#ifdef __x86_64__
-    return ptrace(PTRACE_PEEKUSER, pid, sizeof(long) * R10);
-#else
-    return ptrace(PTRACE_PEEKUSER, pid, sizeof(long) * ESI);
-#endif
+    char *name = *rule;
+    long value = ptrace(PTRACE_PEEKUSER, pid, sizeof(long) * parameter_register[parameter]);
+
+    if (!strcmp(name, expected)) {
+        if (asprintf(rule, "%s: %u == %ld", name, parameter, value) == -1) {
+            errx(EXIT_FAILURE, "asprintf");
+        }
+        free(name);
+    }
 }
 
 static void do_trace(const struct signalfd_siginfo *si, bool *trace_init, enum learn learn,
@@ -310,37 +308,11 @@ static void do_trace(const struct signalfd_siginfo *si, bool *trace_init, enum l
 
             char *rule = name;
             if (learn == LEARN_FINE) {
-                if (!strcmp(name, "ioctl")) {
-                    long a1 = trace_a1(si->ssi_pid);
-                    if (asprintf(&rule, "ioctl: 1 == %ld", a1) == -1) {
-                        errx(EXIT_FAILURE, "asprintf");
-                    }
-                    free(name);
-                } else if (!strcmp(name, "futex")) {
-                    long a1 = trace_a1(si->ssi_pid);
-                    if (asprintf(&rule, "futex: 1 == %ld", a1) == -1) {
-                        errx(EXIT_FAILURE, "asprintf");
-                    }
-                    free(name);
-                } else if (!strcmp(name, "madvise")) {
-                    long a2 = trace_a2(si->ssi_pid);
-                    if (asprintf(&rule, "madvise: 2 == %ld", a2) == -1) {
-                        errx(EXIT_FAILURE, "asprintf");
-                    }
-                    free(name);
-                } else if (!strcmp(name, "fadvise64")) {
-                    long a3 = trace_a3(si->ssi_pid);
-                    if (asprintf(&rule, "fadvise64: 3 == %ld", a3) == -1) {
-                        errx(EXIT_FAILURE, "asprintf");
-                    }
-                    free(name);
-                } else if (!strcmp(name, "fadvise64_64")) {
-                    long a1 = trace_a1(si->ssi_pid);
-                    if (asprintf(&rule, "fadvise64_64: 1 == %ld", a1) == -1) {
-                        errx(EXIT_FAILURE, "asprintf");
-                    }
-                    free(name);
-                }
+                learn_rule1(&rule, si->ssi_pid, "fadvise64", 3);
+                learn_rule1(&rule, si->ssi_pid, "fadvise64_64", 1);
+                learn_rule1(&rule, si->ssi_pid, "futex", 1);
+                learn_rule1(&rule, si->ssi_pid, "ioctl", 1);
+                learn_rule1(&rule, si->ssi_pid, "madvise", 2);
             }
 
             rewind(whitelist);
