@@ -484,6 +484,7 @@ static void handle_seccomp_rule(scmp_filter_ctx ctx, char *rule) {
         args = parse_parameter_checks(split + 1, &n_args);
     }
     check(seccomp_rule_add_array(ctx, SCMP_ACT_ALLOW, get_syscall_nr(rule), n_args, args));
+    free(args);
 }
 
 int main(int argc, char **argv) {
