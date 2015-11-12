@@ -272,7 +272,7 @@ static long get_parameter(pid_t pid, unsigned index) {
     if (index < 1 || index > sizeof(arg_registers) / sizeof(arg_registers[0])) {
         errx(EXIT_FAILURE, "parameter index invalid");
     }
-    return ptrace(PTRACE_PEEKUSER, pid, sizeof(long) * arg_registers[index - 1]);
+    return ptrace(PTRACE_PEEKUSER, pid, sizeof(long) * (size_t)arg_registers[index - 1]);
 }
 
 static void learn_rule1(char **rule, pid_t pid, const char *expected, unsigned parameter) {
@@ -305,7 +305,9 @@ static void learn_rule2(char **rule, pid_t pid, const char *expected, unsigned p
 static void do_trace(const struct signalfd_siginfo *si, bool *trace_init, enum learn learn,
                      FILE *whitelist) {
     int status;
-    if (waitpid((pid_t)si->ssi_pid, &status, WNOHANG) != (pid_t)si->ssi_pid)
+    pid_t pid = (pid_t)si->ssi_pid;
+
+    if (waitpid(pid, &status, WNOHANG) != pid)
         errx(EXIT_FAILURE, "waitpid");
 
     if (WIFEXITED(status) || WIFSIGNALED(status) || !WIFSTOPPED(status))
@@ -316,23 +318,23 @@ static void do_trace(const struct signalfd_siginfo *si, bool *trace_init, enum l
         if (status >> 8 == (SIGTRAP | PTRACE_EVENT_SECCOMP << 8)) {
             errno = 0;
 #ifdef __x86_64__
-            long syscall = ptrace(PTRACE_PEEKUSER, si->ssi_pid, sizeof(long) * ORIG_RAX);
+            long syscall = ptrace(PTRACE_PEEKUSER, pid, sizeof(long) * ORIG_RAX);
 #else
-            long syscall = ptrace(PTRACE_PEEKUSER, si->ssi_pid, sizeof(long) * ORIG_EAX);
+            long syscall = ptrace(PTRACE_PEEKUSER, pid, sizeof(long) * ORIG_EAX);
 #endif
             if (errno) err(EXIT_FAILURE, "ptrace");
             char *rule = seccomp_syscall_resolve_num_arch(SCMP_ARCH_NATIVE, (int)syscall);
             if (!rule) errx(EXIT_FAILURE, "seccomp_syscall_resolve_num_arch");
 
             if (learn == LEARN_FINE) {
-                learn_rule1(&rule, si->ssi_pid, "fadvise64", 4);
-                learn_rule1(&rule, si->ssi_pid, "fadvise64_64", 2);
-                learn_rule1(&rule, si->ssi_pid, "fcntl", 2);
-                learn_rule1(&rule, si->ssi_pid, "futex", 2);
-                learn_rule2(&rule, si->ssi_pid, "getsockopt", 2, 3);
-                learn_rule1(&rule, si->ssi_pid, "ioctl", 2);
-                learn_rule1(&rule, si->ssi_pid, "madvise", 3);
-                learn_rule2(&rule, si->ssi_pid, "setsockopt", 2, 3);
+                learn_rule1(&rule, pid, "fadvise64", 4);
+                learn_rule1(&rule, pid, "fadvise64_64", 2);
+                learn_rule1(&rule, pid, "fcntl", 2);
+                learn_rule1(&rule, pid, "futex", 2);
+                learn_rule2(&rule, pid, "getsockopt", 2, 3);
+                learn_rule1(&rule, pid, "ioctl", 2);
+                learn_rule1(&rule, pid, "madvise", 3);
+                learn_rule2(&rule, pid, "setsockopt", 2, 3);
             }
 
             rewind(whitelist);
@@ -359,10 +361,10 @@ static void do_trace(const struct signalfd_siginfo *si, bool *trace_init, enum l
             inject_signal = WSTOPSIG(status);
         }
     } else {
-        check_posix(ptrace(PTRACE_SETOPTIONS, si->ssi_pid, 0, PTRACE_O_TRACESECCOMP), "ptrace");
+        check_posix(ptrace(PTRACE_SETOPTIONS, pid, 0, PTRACE_O_TRACESECCOMP), "ptrace");
         *trace_init = true;
     }
-    check_posix(ptrace(PTRACE_CONT, si->ssi_pid, 0, inject_signal), "ptrace");
+    check_posix(ptrace(PTRACE_CONT, pid, 0, inject_signal), "ptrace");
 }
 
 static void handle_signal(int sig_fd, sd_bus *connection, const char *unit_name,
@@ -449,7 +451,7 @@ static struct scmp_arg_cmp parse_parameter_check(const char *arg) {
         errx(EXIT_FAILURE, "invalid system call whitelist: invalid parameter rule");
     }
 
-    return SCMP_CMP(index, op, value);
+    return SCMP_CMP(index, op, (unsigned long)value);
 }
 
 static struct scmp_arg_cmp *parse_parameter_checks(char *s, unsigned *count) {
