@@ -56,9 +56,18 @@ __attribute__((format(printf, 2, 3))) static bool check_eagain(intmax_t rc, cons
     return rc == -1 && errno == EAGAIN;
 }
 
+__attribute__((format(printf, 2, 3))) static void asprintfx(char **strp, const char *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    if (vasprintf(strp, fmt, args) == -1) {
+        errx(EXIT_FAILURE, "asprintf: %s", strerror(ENOMEM));
+    }
+    va_end(args);
+}
+
 static char *join_path(const char *left, const char *right) {
     char *dst;
-    check_posix(asprintf(&dst, "%s/%s", left, right), "asprintf");
+    asprintfx(&dst, "%s/%s", left, right);
     return dst;
 }
 
@@ -280,9 +289,7 @@ static void learn_rule1(char **rule, pid_t pid, const char *expected, unsigned p
     long value = get_parameter(pid, parameter);
 
     if (!strcmp(name, expected)) {
-        if (asprintf(rule, "%s: %u == %ld", name, parameter, value) == -1) {
-            errx(EXIT_FAILURE, "asprintf");
-        }
+        asprintfx(rule, "%s: %u == %ld", name, parameter, value);
         free(name);
     }
 }
@@ -294,10 +301,7 @@ static void learn_rule2(char **rule, pid_t pid, const char *expected, unsigned p
     long value2 = get_parameter(pid, parameter2);
 
     if (!strcmp(name, expected)) {
-        if (asprintf(rule, "%s: %u == %ld, %u == %ld", name, parameter, value, parameter2,
-                     value2) == -1) {
-            errx(EXIT_FAILURE, "asprintf");
-        }
+        asprintfx(rule, "%s: %u == %ld, %u == %ld", name, parameter, value, parameter2, value2);
         free(name);
     }
 }
@@ -772,11 +776,9 @@ int main(int argc, char **argv) {
 
         char path[] = "PATH=/usr/local/bin:/usr/bin:/bin";
         char *env[] = {path, NULL, NULL, NULL, NULL};
-        if ((asprintf(env + 1, "HOME=%s", pw->pw_dir) < 0 ||
-             asprintf(env + 2, "USER=%s", username) < 0 ||
-             asprintf(env + 3, "LOGNAME=%s", username) < 0)) {
-            errx(EXIT_FAILURE, "asprintf");
-        }
+        asprintfx(env + 1, "HOME=%s", pw->pw_dir);
+        asprintfx(env + 2, "USER=%s", username);
+        asprintfx(env + 3, "LOGNAME=%s", username);
 
         if (learn != LEARN_NONE) {
             check_posix(ptrace(PTRACE_TRACEME, 0, NULL, NULL), "ptrace");
