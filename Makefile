@@ -10,7 +10,8 @@ LDFLAGS += -pie -Wl,--as-needed,-z,relro,-z,now
 ifeq ($(CC), clang)
 	CFLAGS += -Weverything \
 		  -Wno-padded \
-		  -Wno-disabled-macro-expansion
+		  -Wno-disabled-macro-expansion \
+		  -Wno-missing-field-initializers
 else
 	CFLAGS += -Wall -Wextra -Wshadow -Wsign-conversion
 endif
