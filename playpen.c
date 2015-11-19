@@ -284,28 +284,6 @@ static long get_parameter(pid_t pid, unsigned index) {
     return ptrace(PTRACE_PEEKUSER, pid, sizeof(long) * (size_t)arg_registers[index - 1]);
 }
 
-static void learn_rule1(char **rule, pid_t pid, const char *expected, unsigned parameter) {
-    char *name = *rule;
-    long value = get_parameter(pid, parameter);
-
-    if (!strcmp(name, expected)) {
-        asprintfx(rule, "%s: %u == %ld", name, parameter, value);
-        free(name);
-    }
-}
-
-static void learn_rule2(char **rule, pid_t pid, const char *expected, unsigned parameter,
-                        unsigned parameter2) {
-    char *name = *rule;
-    long value = get_parameter(pid, parameter);
-    long value2 = get_parameter(pid, parameter2);
-
-    if (!strcmp(name, expected)) {
-        asprintfx(rule, "%s: %u == %ld, %u == %ld", name, parameter, value, parameter2, value2);
-        free(name);
-    }
-}
-
 static void do_trace(const struct signalfd_siginfo *si, bool *trace_init, enum learn learn,
                      FILE *whitelist) {
     int status;
@@ -330,15 +308,35 @@ static void do_trace(const struct signalfd_siginfo *si, bool *trace_init, enum l
             char *rule = seccomp_syscall_resolve_num_arch(SCMP_ARCH_NATIVE, (int)syscall);
             if (!rule) errx(EXIT_FAILURE, "seccomp_syscall_resolve_num_arch");
 
+            struct {
+                const char *name;
+                unsigned count, p1, p2;
+            } calls[] = {
+                {"fadvise64",    1, 4, 0},
+                {"fadvise64_64", 1, 2, 0},
+                {"fcntl",        1, 2, 0},
+                {"futex",        1, 2, 0},
+                {"getsockopt",   2, 2, 3},
+                {"ioctl",        1, 2, 0},
+                {"madvise",      1, 3, 0},
+                {"setsockopt",   2, 2, 3}
+            };
+
             if (learn == LEARN_FINE) {
-                learn_rule1(&rule, pid, "fadvise64", 4);
-                learn_rule1(&rule, pid, "fadvise64_64", 2);
-                learn_rule1(&rule, pid, "fcntl", 2);
-                learn_rule1(&rule, pid, "futex", 2);
-                learn_rule2(&rule, pid, "getsockopt", 2, 3);
-                learn_rule1(&rule, pid, "ioctl", 2);
-                learn_rule1(&rule, pid, "madvise", 3);
-                learn_rule2(&rule, pid, "setsockopt", 2, 3);
+                for (size_t i = 0; i < sizeof(calls) / sizeof(calls[0]); i++) {
+                    if (!strcmp(rule, calls[i].name)) {
+                        free(rule);
+                        long value = get_parameter(pid, calls[i].p1);
+                        if (calls[i].count == 1) {
+                            asprintfx(&rule, "%s: %u == %ld", calls[i].name, calls[i].p1, value);
+                        } else {
+                            long value2 = get_parameter(pid, calls[i].p2);
+                            asprintfx(&rule, "%s: %u == %ld, %u == %ld", calls[i].name, calls[i].p1,
+                                      value, calls[i].p2, value2);
+                        }
+                        break;
+                    }
+                }
             }
 
             rewind(whitelist);
