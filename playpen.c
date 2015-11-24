@@ -19,6 +19,7 @@
 #include <sys/mount.h>
 #include <sys/prctl.h>
 #include <sys/ptrace.h>
+#include <linux/ptrace.h>
 #include <sys/resource.h>
 #include <sys/signalfd.h>
 #include <sys/stat.h>
@@ -284,18 +285,9 @@ static long get_parameter(pid_t pid, unsigned index) {
     return ptrace(PTRACE_PEEKUSER, pid, sizeof(long) * (size_t)arg_registers[index - 1]);
 }
 
-static void do_trace(const struct signalfd_siginfo *si, enum learn learn, FILE *whitelist) {
-    int status;
-    pid_t pid = (pid_t)si->ssi_pid;
-
-    if (waitpid(pid, &status, WNOHANG) != pid)
-        errx(EXIT_FAILURE, "waitpid");
-
-    if (WIFEXITED(status) || WIFSIGNALED(status) || !WIFSTOPPED(status))
-        errx(EXIT_FAILURE, "unexpected ptrace event");
-
+static void do_trace(pid_t pid, int status, enum learn learn, FILE *whitelist) {
     int inject_signal = 0;
-    if (status >> 8 == (SIGTRAP | PTRACE_EVENT_SECCOMP << 8)) {
+    if ((status >> 8) == (SIGTRAP | PTRACE_EVENT_SECCOMP << 8)) {
         errno = 0;
 #ifdef __x86_64__
         long syscall = ptrace(PTRACE_PEEKUSER, pid, sizeof(long) * ORIG_RAX);
@@ -357,13 +349,23 @@ static void do_trace(const struct signalfd_siginfo *si, enum learn learn, FILE *
             fprintf(whitelist, "%s\n", rule);
             free(rule);
         }
+    } else if ((status >> 8) == (SIGTRAP | PTRACE_EVENT_CLONE << 8)) {
+        // new child
+    } else if ((status >> 8) == (SIGTRAP | PTRACE_EVENT_FORK << 8)) {
+        // new child
+    } else if ((status >> 8) == (SIGTRAP | PTRACE_EVENT_VFORK << 8)) {
+        // new child
+    } else if ((status >> 8) == (SIGTRAP | PTRACE_EVENT_STOP << 8)) {
+        // attached child
+    } else if ((status >> 8) == (SIGSTOP | PTRACE_EVENT_STOP << 8)) {
+        // group stop
     } else {
         inject_signal = WSTOPSIG(status);
     }
     check_posix(ptrace(PTRACE_CONT, pid, 0, inject_signal), "ptrace");
 }
 
-static void handle_signal(int sig_fd, sd_bus *connection, const char *unit_name,
+static void handle_signal(pid_t main_pid, int sig_fd, sd_bus *connection, const char *unit_name,
                           enum learn learn, FILE *whitelist) {
     struct signalfd_siginfo si;
     ssize_t bytes_r = read(sig_fd, &si, sizeof(si));
@@ -383,21 +385,22 @@ static void handle_signal(int sig_fd, sd_bus *connection, const char *unit_name,
     if (si.ssi_signo != SIGCHLD)
         errx(EXIT_FAILURE, "got an unexpected signal");
 
-    switch (si.ssi_code) {
-    case CLD_EXITED:
-        if (si.ssi_status) {
-            warnx("application terminated with error code %d", si.ssi_status);
+    // handle coalesced signals
+    pid_t pid;
+    int status;
+    while ((pid = waitpid(-1, &status, WNOHANG|__WALL))) {
+        check_posix(pid, "waitpid");
+        if (WIFSTOPPED(status)) {
+            do_trace(pid, status, learn, whitelist);
+        } else if (WIFSIGNALED(status)) {
+            errx(EXIT_FAILURE, "application terminated abnormally with signal %d (%s)",
+                 WTERMSIG(status), strsignal(WTERMSIG(status)));
+        } else if (WIFEXITED(status) && pid == main_pid) {
+            if (WEXITSTATUS(status)) {
+                warnx("application terminated with error code %d", si.ssi_status);
+            }
+            exit(WEXITSTATUS(status));
         }
-        exit(si.ssi_status);
-    case CLD_KILLED:
-    case CLD_DUMPED:
-        errx(EXIT_FAILURE, "application terminated abnormally with signal %d (%s)",
-             si.ssi_status, strsignal(si.ssi_status));
-    case CLD_TRAPPED:
-        do_trace(&si, learn, whitelist);
-    case CLD_STOPPED:
-    default:
-        break;
     }
 }
 
@@ -780,7 +783,8 @@ int main(int argc, char **argv) {
     seccomp_release(ctx);
 
     if (learn != LEARN_NONE) {
-        check_posix(ptrace(PTRACE_SEIZE, pid, NULL, PTRACE_O_TRACESECCOMP), "ptrace");
+        long trace_flags = PTRACE_O_TRACECLONE|PTRACE_O_TRACEFORK|PTRACE_O_TRACESECCOMP|PTRACE_O_TRACEVFORK;
+        check_posix(ptrace(PTRACE_SEIZE, pid, NULL, trace_flags), "ptrace");
     }
 
     sd_bus *connection;
@@ -832,7 +836,7 @@ int main(int argc, char **argv) {
                     stop_scope_unit(connection, unit_name);
                     return EXIT_FAILURE;
                 } else if (evt->data.fd == sig_fd) {
-                    handle_signal(sig_fd, connection, unit_name, learn, whitelist);
+                    handle_signal(pid, sig_fd, connection, unit_name, learn, whitelist);
                 } else if (evt->data.fd == pipe_out[0]) {
                     copy_to_stdstream(pipe_out[0], STDOUT_FILENO);
                 } else if (evt->data.fd == pipe_err[0]) {
