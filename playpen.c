@@ -284,8 +284,7 @@ static long get_parameter(pid_t pid, unsigned index) {
     return ptrace(PTRACE_PEEKUSER, pid, sizeof(long) * (size_t)arg_registers[index - 1]);
 }
 
-static void do_trace(const struct signalfd_siginfo *si, bool *trace_init, enum learn learn,
-                     FILE *whitelist) {
+static void do_trace(const struct signalfd_siginfo *si, enum learn learn, FILE *whitelist) {
     int status;
     pid_t pid = (pid_t)si->ssi_pid;
 
@@ -296,81 +295,76 @@ static void do_trace(const struct signalfd_siginfo *si, bool *trace_init, enum l
         errx(EXIT_FAILURE, "unexpected ptrace event");
 
     int inject_signal = 0;
-    if (*trace_init) {
-        if (status >> 8 == (SIGTRAP | PTRACE_EVENT_SECCOMP << 8)) {
-            errno = 0;
+    if (status >> 8 == (SIGTRAP | PTRACE_EVENT_SECCOMP << 8)) {
+        errno = 0;
 #ifdef __x86_64__
-            long syscall = ptrace(PTRACE_PEEKUSER, pid, sizeof(long) * ORIG_RAX);
+        long syscall = ptrace(PTRACE_PEEKUSER, pid, sizeof(long) * ORIG_RAX);
 #else
-            long syscall = ptrace(PTRACE_PEEKUSER, pid, sizeof(long) * ORIG_EAX);
+        long syscall = ptrace(PTRACE_PEEKUSER, pid, sizeof(long) * ORIG_EAX);
 #endif
-            if (errno) err(EXIT_FAILURE, "ptrace");
-            char *rule = seccomp_syscall_resolve_num_arch(SCMP_ARCH_NATIVE, (int)syscall);
-            if (!rule) errx(EXIT_FAILURE, "seccomp_syscall_resolve_num_arch");
+        if (errno) err(EXIT_FAILURE, "ptrace");
+        char *rule = seccomp_syscall_resolve_num_arch(SCMP_ARCH_NATIVE, (int)syscall);
+        if (!rule) errx(EXIT_FAILURE, "seccomp_syscall_resolve_num_arch");
 
-            struct {
-                const char *name;
-                unsigned count, p1, p2;
-            } calls[] = {
-                {"fadvise64",    1, 4, 0},
-                {"fadvise64_64", 1, 2, 0},
-                {"fcntl",        1, 2, 0},
-                {"futex",        1, 2, 0},
-                {"getsockopt",   2, 2, 3},
-                {"ioctl",        1, 2, 0},
-                {"madvise",      1, 3, 0},
-                {"setsockopt",   2, 2, 3}
-            };
+        struct {
+            const char *name;
+            unsigned count, p1, p2;
+        } calls[] = {
+            {"fadvise64",    1, 4, 0},
+            {"fadvise64_64", 1, 2, 0},
+            {"fcntl",        1, 2, 0},
+            {"futex",        1, 2, 0},
+            {"getsockopt",   2, 2, 3},
+            {"ioctl",        1, 2, 0},
+            {"madvise",      1, 3, 0},
+            {"setsockopt",   2, 2, 3}
+        };
 
-            if (learn == LEARN_FINE) {
-                for (size_t i = 0; i < sizeof(calls) / sizeof(calls[0]); i++) {
-                    if (!strcmp(rule, calls[i].name)) {
-                        free(rule);
-                        long value = get_parameter(pid, calls[i].p1);
-                        if (calls[i].count == 1) {
-                            asprintfx(&rule, "%s: %u == %ld", calls[i].name, calls[i].p1, value);
-                        } else {
-                            long value2 = get_parameter(pid, calls[i].p2);
-                            asprintfx(&rule, "%s: %u == %ld, %u == %ld", calls[i].name, calls[i].p1,
-                                      value, calls[i].p2, value2);
-                        }
-                        break;
+        if (learn == LEARN_FINE) {
+            for (size_t i = 0; i < sizeof(calls) / sizeof(calls[0]); i++) {
+                if (!strcmp(rule, calls[i].name)) {
+                    free(rule);
+                    long value = get_parameter(pid, calls[i].p1);
+                    if (calls[i].count == 1) {
+                        asprintfx(&rule, "%s: %u == %ld", calls[i].name, calls[i].p1, value);
+                    } else {
+                        long value2 = get_parameter(pid, calls[i].p2);
+                        asprintfx(&rule, "%s: %u == %ld, %u == %ld", calls[i].name, calls[i].p1,
+                                  value, calls[i].p2, value2);
                     }
-                }
-            }
-
-            rewind(whitelist);
-            char *line = NULL;
-            size_t len = 0;
-            ssize_t n_read;
-            while ((n_read = getline(&line, &len, whitelist)) != -1) {
-                if (line[n_read - 1] == '\n') line[n_read - 1] = '\0';
-                if (!strcmp(rule, line)) {
-                    rule = NULL;
                     break;
                 }
             }
-            if (ferror(whitelist)) {
-                err(EXIT_FAILURE, "getline");
-            }
-            free(line);
+        }
 
-            if (rule) {
-                fprintf(whitelist, "%s\n", rule);
-                free(rule);
+        rewind(whitelist);
+        char *line = NULL;
+        size_t len = 0;
+        ssize_t n_read;
+        while ((n_read = getline(&line, &len, whitelist)) != -1) {
+            if (line[n_read - 1] == '\n') line[n_read - 1] = '\0';
+            if (!strcmp(rule, line)) {
+                rule = NULL;
+                break;
             }
-        } else {
-            inject_signal = WSTOPSIG(status);
+        }
+        if (ferror(whitelist)) {
+            err(EXIT_FAILURE, "getline");
+        }
+        free(line);
+
+        if (rule) {
+            fprintf(whitelist, "%s\n", rule);
+            free(rule);
         }
     } else {
-        check_posix(ptrace(PTRACE_SETOPTIONS, pid, 0, PTRACE_O_TRACESECCOMP), "ptrace");
-        *trace_init = true;
+        inject_signal = WSTOPSIG(status);
     }
     check_posix(ptrace(PTRACE_CONT, pid, 0, inject_signal), "ptrace");
 }
 
 static void handle_signal(int sig_fd, sd_bus *connection, const char *unit_name,
-                          bool *trace_init, enum learn learn, FILE *whitelist) {
+                          enum learn learn, FILE *whitelist) {
     struct signalfd_siginfo si;
     ssize_t bytes_r = read(sig_fd, &si, sizeof(si));
     check_posix(bytes_r, "read");
@@ -400,7 +394,7 @@ static void handle_signal(int sig_fd, sd_bus *connection, const char *unit_name,
         errx(EXIT_FAILURE, "application terminated abnormally with signal %d (%s)",
              si.ssi_status, strsignal(si.ssi_status));
     case CLD_TRAPPED:
-        do_trace(&si, trace_init, learn, whitelist);
+        do_trace(&si, learn, whitelist);
     case CLD_STOPPED:
     default:
         break;
@@ -778,16 +772,16 @@ int main(int argc, char **argv) {
         asprintfx(env + 2, "USER=%s", username);
         asprintfx(env + 3, "LOGNAME=%s", username);
 
-        if (learn != LEARN_NONE) {
-            check_posix(ptrace(PTRACE_TRACEME, 0, NULL, NULL), "ptrace");
-        }
-
         check(seccomp_load(ctx));
         check_posix(execvpe(argv[optind], argv + optind, env), "execvpe");
     }
 
     bind_list_free(binds);
     seccomp_release(ctx);
+
+    if (learn != LEARN_NONE) {
+        check_posix(ptrace(PTRACE_SEIZE, pid, NULL, PTRACE_O_TRACESECCOMP), "ptrace");
+    }
 
     sd_bus *connection;
     check(sd_bus_open_system(&connection));
@@ -813,7 +807,6 @@ int main(int argc, char **argv) {
 
     uint8_t stdin_buffer[PIPE_BUF];
     ssize_t stdin_bytes_read = 0;
-    bool trace_init = false;
 
     for (;;) {
         struct epoll_event events[8];
@@ -839,7 +832,7 @@ int main(int argc, char **argv) {
                     stop_scope_unit(connection, unit_name);
                     return EXIT_FAILURE;
                 } else if (evt->data.fd == sig_fd) {
-                    handle_signal(sig_fd, connection, unit_name, &trace_init, learn, whitelist);
+                    handle_signal(sig_fd, connection, unit_name, learn, whitelist);
                 } else if (evt->data.fd == pipe_out[0]) {
                     copy_to_stdstream(pipe_out[0], STDOUT_FILENO);
                 } else if (evt->data.fd == pipe_err[0]) {
