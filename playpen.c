@@ -817,7 +817,7 @@ int main(int argc, char **argv) {
 
     for (;;) {
         struct epoll_event events[8];
-        int n_event = epoll_wait(epoll_fd, events, 4, -1);
+        int n_event = epoll_wait(epoll_fd, events, sizeof(events) / sizeof(events[0]), -1);
 
         if (n_event < 0) {
             if (errno == EINTR)
