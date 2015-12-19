@@ -309,6 +309,7 @@ static void do_trace(pid_t pid, int status, enum learn learn, FILE *whitelist) {
             {"getsockopt",   2, 2, 3},
             {"ioctl",        1, 2, 0},
             {"madvise",      1, 3, 0},
+            {"prctl",        1, 1, 0},
             {"setsockopt",   2, 2, 3}
         };
 
